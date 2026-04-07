@@ -1,22 +1,33 @@
 import * as React from "react";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Printer, RotateCcw, Mail, FileDown, Plus, X, KeyRound } from "lucide-react";
+import { Printer, RotateCcw, Mail, FileDown, Plus, X, KeyRound, Upload, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ImageCropperModal } from "./ImageCropperModal";
+import { performOCR } from "@/lib/image-utils";
 
 const STORAGE_KEY = "refine-template-v1";
 const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
 
+/** Dış ekran zemini */
+const SCREEN_CANVAS_BG = "bg-slate-800";
+/** "Soru Yükle" — normal / hover (hover, zeminden daha koyu) */
+const UPLOAD_BTN_BG = "bg-slate-700";
+const UPLOAD_BTN_HOVER = "hover:bg-slate-800";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface BlockItem {
+  id: string;
   text: string;
+  content: string; // Asıl soru metni alanı
   image: string;
+  height?: number;
   score?: string;
 }
 
@@ -47,29 +58,33 @@ const defaultAnswerKey: AnswerKeyData = {
   count: 15,
 };
 
+function uid() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
 const defaultData: TemplateData = {
   headerTitle: "X. Sınıf Matematik Dersi 2.Dönem 1. Yazılı Sınavı",
   headerSchool: "Mehmet Akif Ortaokulu (202X-202X)",
   page1: {
     left: [
-      { text: "Soru 1", image: "", score: "Puanı: ......." },
-      { text: "Soru 2", image: "", score: "Puanı: ......." },
+      { id: "s1", text: "Soru 1", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
+      { id: "s2", text: "Soru 2", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
     ],
     right: [
-      { text: "Soru 3", image: "", score: "Puanı: ......." },
-      { text: "Soru 4", image: "", score: "Puanı: ......." },
+      { id: "s3", text: "Soru 3", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
+      { id: "s4", text: "Soru 4", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
     ],
   },
   page2: {
     left: [
-      { text: "Soru 5", image: "", score: "Puanı: ......." },
-      { text: "Soru 6", image: "", score: "Puanı: ......." },
-      { text: "Soru 7", image: "", score: "Puanı: ......." },
+      { id: "s5", text: "Soru 5", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
+      { id: "s6", text: "Soru 6", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
+      { id: "s7", text: "Soru 7", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
     ],
     right: [
-      { text: "Soru 8", image: "", score: "Puanı: ......." },
-      { text: "Soru 9", image: "", score: "Puanı: ......." },
-      { text: "Soru 10", image: "", score: "Puanı: ......." },
+      { id: "s8", text: "Soru 8", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
+      { id: "s9", text: "Soru 9", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
+      { id: "s10", text: "Soru 10", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
     ],
   },
   answerKey: defaultAnswerKey,
@@ -87,6 +102,16 @@ function migrateOldFormat(raw: unknown): TemplateData | null {
     if (!result.answerKey) {
       result.answerKey = defaultAnswerKey;
     }
+    // Ensure all blocks have ids (may not exist in older saves)
+    for (const page of ["page1", "page2"] as const) {
+      for (const col of ["left", "right"] as const) {
+        result[page][col] = result[page][col].map((b) => ({
+          ...b,
+          id: b.id || uid(),
+          content: b.content || ""
+        }));
+      }
+    }
     return result;
   }
 
@@ -96,12 +121,12 @@ function migrateOldFormat(raw: unknown): TemplateData | null {
       headerTitle: typeof r.headerTitle === "string" ? r.headerTitle : defaultData.headerTitle,
       headerSchool: typeof r.headerSchool === "string" ? r.headerSchool : defaultData.headerSchool,
       page1: {
-        left: (r.page1 as BlockItem[]).slice(0, 2),
-        right: (r.page1 as BlockItem[]).slice(2, 4),
+        left: (r.page1 as BlockItem[]).map(b => ({ ...b, content: b.content || "" })).slice(0, 2),
+        right: (r.page1 as BlockItem[]).map(b => ({ ...b, content: b.content || "" })).slice(2, 4),
       },
       page2: {
-        left: (r.page2 as BlockItem[]).slice(0, 3),
-        right: (r.page2 as BlockItem[]).slice(3, 6),
+        left: (r.page2 as BlockItem[]).map(b => ({ ...b, content: b.content || "" })).slice(0, 3),
+        right: (r.page2 as BlockItem[]).map(b => ({ ...b, content: b.content || "" })).slice(3, 6),
       },
       answerKey: defaultAnswerKey,
     };
@@ -112,16 +137,18 @@ function migrateOldFormat(raw: unknown): TemplateData | null {
 
 const PAGE1_MAX_TOTAL = 8;
 const PAGE2_MAX_TOTAL = 8;
+const ONE_HOUR = 60 * 60 * 1000; // 1 saatlik bekleme süresi
 
 // ─── EditableText ─────────────────────────────────────────────────────────────
-
+ 
 interface EditableTextProps {
   value: string;
   onChange: (val: string) => void;
   className?: string;
+  isHighlighting?: boolean;
 }
 
-function EditableText({ value, onChange, className = "" }: EditableTextProps) {
+function EditableText({ value, onChange, className = "", isHighlighting = false }: EditableTextProps) {
   const [editing, setEditing] = useState(false);
   const divRef = useRef<HTMLDivElement>(null);
 
@@ -145,19 +172,20 @@ function EditableText({ value, onChange, className = "" }: EditableTextProps) {
           onChange(e.currentTarget.innerText);
         }}
         className={[
-          "cursor-text whitespace-pre-wrap text-zinc-700 outline-none transition-all w-full block",
+          "cursor-text whitespace-pre-wrap text-black outline-none transition-all w-full block",
           editing ? "ring-2 ring-zinc-300 px-1 print:ring-0" : "",
+          isHighlighting ? "highlight-active" : "",
           className,
         ]
           .filter(Boolean)
           .join(" ")}>
         {value}
       </div>
-      <div className="print:hidden absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex flex-col items-center">
-        <div className="bg-slate-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-          Bu bölüme tıklayarak düzenleyebilirsiniz
+      <div className="print:hidden absolute z-50 top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex flex-col items-center">
+        <div className="w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-slate-800 shadow-sm" />
+        <div className="bg-slate-800 text-white text-xs px-3 py-[10px] text-center whitespace-nowrap shadow-lg">
+          Bu bölüme tıklayarak<br />düzenleyebilirsiniz
         </div>
-        <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-900" />
       </div>
     </div>
   );
@@ -169,23 +197,85 @@ interface ImageUploaderProps {
   src: string;
   onChange: (val: string | ArrayBuffer | null) => void;
   height: number;
+  isHighlighting?: boolean;
 }
 
-function ImageUploader({ src, onChange, height }: ImageUploaderProps) {
+function ImageUploader({ src, onChange, height, isHighlighting = false }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [tempSrc, setTempSrc] = useState<string>("");
 
   return (
-    <div
-      className="relative overflow-hidden bg-zinc-50 border border-dashed border-zinc-300 flex items-center justify-center"
-      style={{ height }}>
-      {src && <img src={src} className="absolute inset-0 w-full h-full object-cover" alt="Yüklenen görsel" />}
+    <>
+      <div
+        className={`relative overflow-hidden bg-white print:bg-white border border-dashed border-zinc-300 group-hover/block:border-zinc-500 flex items-center justify-center transition-colors duration-200 ${isHighlighting ? "highlight-active" : ""}`}
+        style={{ height }}>
+        {src && <img src={src} className="absolute inset-0 w-full h-full object-contain" alt="Yüklenen görsel" />}
 
-      <Button
-        size="sm"
-        className="upload-btn print:hidden relative z-10 bg-slate-900 hover:bg-slate-800 text-white border-transparent cursor-pointer"
-        onClick={() => inputRef.current?.click()}>
-        Soru Yükle
-      </Button>
+        <Button
+          size="sm"
+          className="upload-btn print:hidden relative z-20 bg-red-600 hover:bg-red-700 text-white border-transparent cursor-pointer opacity-0 translate-y-2 group-hover/block:opacity-100 group-hover/block:translate-y-0 transition-all duration-200 group/uploadbtn gap-1.5 rounded-none shadow-sm"
+          onClick={() => inputRef.current?.click()}>
+          <Upload className="upload-icon size-3.5" />
+          Tekrar soru yükle
+        </Button>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              setTempSrc(reader.result as string);
+              setModalOpen(true);
+              if (inputRef.current) inputRef.current.value = "";
+            };
+            reader.readAsDataURL(file);
+          }}
+        />
+      </div>
+      <ImageCropperModal
+        open={modalOpen}
+        imageSrc={tempSrc}
+        onClose={() => setModalOpen(false)}
+        onCropComplete={(res) => {
+          onChange(res);
+          setModalOpen(false);
+        }}
+      />
+    </>
+  );
+}
+
+/** Basit, kompakt resim yükleme butonu (A4 alanından tasarruf için) */
+interface CompactImageUploaderProps {
+  onImageChange: (val: string | ArrayBuffer | null) => void;
+  isHighlighting?: boolean;
+}
+
+function CompactImageUploader({ onImageChange, isHighlighting = false }: CompactImageUploaderProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [tempSrc, setTempSrc] = useState<string>("");
+
+  return (
+    <div className="w-full">
+      <div 
+        onClick={() => inputRef.current?.click()}
+        className={`group relative flex flex-col items-center justify-center w-full min-h-[200px] bg-slate-50/50 border-2 border-dashed border-slate-300 hover:border-slate-400 hover:bg-slate-100/50 cursor-pointer transition-all duration-200 ${isHighlighting ? "highlight-active" : ""}`}
+      >
+        <Button
+          size="sm"
+          className={`${UPLOAD_BTN_BG} ${UPLOAD_BTN_HOVER} text-white border-transparent cursor-pointer rounded-none gap-2 px-6 h-10 shadow-sm opacity-100 transition-all duration-200 group/uploadbtn`}
+        >
+          <Upload className="size-4 group-hover/uploadbtn:animate-bounce transition-transform duration-200" />
+          Soru yükle
+        </Button>
+      </div>
 
       <input
         ref={inputRef}
@@ -196,9 +286,20 @@ function ImageUploader({ src, onChange, height }: ImageUploaderProps) {
           const file = e.target.files?.[0];
           if (!file) return;
           const reader = new FileReader();
-          reader.onload = () => onChange(reader.result);
+          reader.onload = () => {
+            setTempSrc(reader.result as string);
+            setModalOpen(true);
+            if (inputRef.current) inputRef.current.value = "";
+          };
           reader.readAsDataURL(file);
         }}
+      />
+
+      <ImageCropperModal
+        open={modalOpen}
+        imageSrc={tempSrc}
+        onClose={() => setModalOpen(false)}
+        onCropComplete={onImageChange}
       />
     </div>
   );
@@ -211,9 +312,9 @@ function AddBlockZone({ onAdd }: { onAdd: () => void }) {
     <div className="add-block-zone print:hidden" style={{ height: "44px" }}>
       <button
         onClick={onAdd}
-        className="w-full h-full border-2 border-dashed border-zinc-300 hover:border-zinc-400 rounded flex items-center justify-center gap-1 bg-transparent hover:bg-zinc-50 cursor-pointer transition-colors duration-150">
-        <Plus className="size-3 text-zinc-400" />
-        <span className="text-xs text-zinc-400">Buraya blok ekle</span>
+        className="w-full h-full border-2 border-dashed border-zinc-400 hover:border-slate-800 rounded-none flex items-center justify-center gap-1 bg-transparent cursor-pointer transition-colors duration-150 group">
+        <Plus className="size-3 text-zinc-500 group-hover:text-slate-800" />
+        <span className="text-xs text-zinc-500 group-hover:text-slate-800">Buraya blok ekle</span>
       </button>
     </div>
   );
@@ -226,14 +327,47 @@ const DEFAULT_IMAGE_HEIGHT = 160;
 interface BlockCardProps {
   item: BlockItem;
   onTextChange: (val: string) => void;
+  onContentChange: (val: string) => void;
   onImageChange: (val: string | ArrayBuffer | null) => void;
   onScoreChange: (val: string) => void;
+  onHeightChange: (val: number) => void;
+  onOCR: () => void;
   onRemove: () => void;
   maxImageHeight: number;
+  isHighlighting?: boolean;
 }
 
-function BlockCard({ item, onTextChange, onImageChange, onScoreChange, onRemove, maxImageHeight }: BlockCardProps) {
-  const [blockHeight, setBlockHeight] = useState<number>(DEFAULT_IMAGE_HEIGHT);
+function BlockCard({
+  item,
+  onTextChange,
+  onContentChange,
+  onImageChange,
+  onScoreChange,
+  onHeightChange,
+  onOCR,
+  onRemove,
+  maxImageHeight,
+  isHighlighting = false,
+}: BlockCardProps) {
+  const [blockHeight, setBlockHeight] = useState<number>(item.height ?? DEFAULT_IMAGE_HEIGHT);
+  const [removing, setRemoving] = useState(false);
+  const [isOCRProcessing, setIsOCRProcessing] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Sync internal height state with prop updates (important for reloads/resets)
+  useEffect(() => {
+    if (item.height !== undefined && item.height !== blockHeight) {
+      setBlockHeight(item.height);
+    }
+  }, [item.height]);
+
+  const handleRemove = () => {
+    if (cardRef.current) {
+      cardRef.current.style.height = cardRef.current.offsetHeight + "px";
+    }
+    setRemoving(true);
+    setTimeout(onRemove, 350);
+  };
 
   const handleResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -246,55 +380,126 @@ function BlockCard({ item, onTextChange, onImageChange, onScoreChange, onRemove,
       setBlockHeight(newHeight);
     };
 
-    const onMouseUp = () => {
+    const finalMouseUp = (ev: MouseEvent) => {
       document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("mouseup", finalMouseUp);
       document.body.style.userSelect = "";
+
+      // Calculate final height based on the last delta
+      const finalDelta = ev.clientY - startY;
+      const finalHeight = Math.min(maxImageHeight, Math.max(DEFAULT_IMAGE_HEIGHT, startHeight + finalDelta));
+      onHeightChange(finalHeight);
     };
 
     document.body.style.userSelect = "none";
     document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
+    document.addEventListener("mouseup", finalMouseUp);
   };
 
   return (
-    <div className="relative group/block bg-white border border-zinc-200 hover:border-blue-400 transition-colors duration-200 p-3 flex flex-col gap-2 print:border-zinc-200">
-      {/* Remove button */}
+    <div ref={cardRef} className={`relative group/block bg-white border border-zinc-200 hover:border-blue-400 p-3 flex flex-col gap-2 print:border-zinc-200 ${removing ? "overflow-hidden block-removing" : "overflow-visible transition-colors duration-200"}`}>
+      {/* Remove button - Bottom Left */}
       <button
-        onClick={onRemove}
-        className="print:hidden absolute z-20 opacity-0 group-hover/block:opacity-100 transition-opacity duration-200 flex items-center gap-0.5 bg-red-50 border border-red-200 text-red-400 hover:text-red-600 hover:bg-red-100 hover:border-red-400 rounded px-1.5 py-0.5 text-xs cursor-pointer"
-        style={{ left: "-92px", top: "50%", transform: "translateY(-50%)" }}
-        title="Blogu kaldır">
-        <X className="size-3" />
-        <span>Blogu kaldır</span>
+        onClick={handleRemove}
+        className="print:hidden absolute z-20 opacity-0 group-hover/block:opacity-100 transition-opacity duration-200 flex items-center bg-red-600 border-r border-t border-red-700 text-white hover:bg-red-700 h-8 px-2 cursor-pointer"
+        style={{ left: 0, bottom: 0 }}
+      >
+        <X className="size-4" />
+        <span className="ml-1.5 text-xs font-semibold">Bloku Kaldır</span>
       </button>
 
       <div className="flex items-center gap-2">
-        <EditableText value={item.text} onChange={onTextChange} className="font-semibold text-sm text-zinc-800" />
+        <EditableText value={item.text} onChange={onTextChange} className="font-bold text-sm text-black" isHighlighting={isHighlighting} />
         <div className="ml-auto shrink-0">
           <EditableText
-            value={item.score ?? "Puanı: ......."}
+            value={item.score ?? "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0"}
             onChange={onScoreChange}
-            className="text-xs text-zinc-600 text-right whitespace-nowrap"
+            className="text-xs text-black font-semibold text-right whitespace-nowrap"
+            isHighlighting={isHighlighting}
           />
         </div>
       </div>
-      <ImageUploader src={item.image} onChange={onImageChange} height={blockHeight} />
-      {item.image && (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div
-                className="no-print h-2 w-full cursor-s-resize bg-zinc-100 hover:bg-zinc-300 transition-colors rounded-b print:hidden"
-                onMouseDown={handleResizeStart}
-              />
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-xs">
-              <p>Aşağı doğru bölümü uzatabilmek için bloğun alt tarafındaki çizgiyi mouse ile aşağı çekebilirsiniz</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+      {/* İçerik Alanı: Resim Varsay (Dinamik Yükseklik) */}
+      {item.image ? (
+        <div className="relative overflow-hidden group/imgarea">
+          <ImageUploader src={item.image} onChange={onImageChange} height={blockHeight} isHighlighting={isHighlighting} />
+
+          {/* Black Translucent Overlay on Hover */}
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/block:opacity-100 transition-opacity duration-200 z-10 pointer-events-none" />
+
+          {/* OCR Button - Top Left */}
+          {!isOCRProcessing && (
+            <Button
+              size="sm"
+              className="absolute top-0 left-0 z-20 opacity-0 group-hover/block:opacity-100 bg-red-600 hover:bg-red-700 text-white border-r border-b border-red-700 shadow-none gap-1.5 h-10 rounded-none px-4 cursor-pointer transition-opacity duration-200"
+              onClick={async () => {
+                setIsOCRProcessing(true);
+                try {
+                  await onOCR();
+                } finally {
+                  setIsOCRProcessing(false);
+                }
+              }}
+            >
+              <Sparkles className="size-4 text-white animate-sparkle-magic" />
+              <span className="font-semibold text-xs">Metne Dönüştür</span>
+            </Button>
+          )}
+
+          {/* Action Overlay - Bottom Right */}
+          <div className="absolute bottom-0 right-0 z-20 opacity-0 group-hover/block:opacity-100 transition-opacity">
+            <Button
+              size="sm"
+              variant="destructive"
+              className="bg-red-600 hover:bg-red-700 text-white h-8 rounded-none border-l border-t border-red-700 shadow-none gap-1.5 px-3 cursor-pointer"
+              onClick={() => {
+                if(window.confirm("Görsel kaldırılacak. Emin misiniz?")) onImageChange("");
+              }}
+              title="Resmi kaldır"
+            >
+              <X className="size-4" />
+              <span className="font-semibold text-xs">Resmi Kaldır</span>
+            </Button>
+          </div>
+          {isOCRProcessing && (
+            <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex flex-col items-center justify-center gap-2 z-10">
+              <Loader2 className="size-6 animate-spin text-slate-600" />
+              <span className="text-xs font-medium text-slate-700">Metin okunuyor...</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex justify-start no-print">
+          <CompactImageUploader onImageChange={onImageChange} isHighlighting={isHighlighting} />
+        </div>
       )}
+
+      {/* Soru İçeriği (Yazı Altta) */}
+      <div className="mt-1">
+        <EditableText 
+          value={item.content || ""} 
+          onChange={onContentChange} 
+          className="text-sm leading-relaxed" 
+          isHighlighting={isHighlighting}
+        />
+      </div>
+      
+      {/* Resize Handle - Always visible for prep layout */}
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className="no-print h-2 w-full cursor-s-resize bg-zinc-100 hover:bg-zinc-300 transition-colors rounded-b print:hidden flex items-center justify-center group/resize"
+              onMouseDown={handleResizeStart}
+            >
+              <div className="w-12 h-0.5 bg-zinc-300 group-hover/resize:bg-zinc-400 rounded-full" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-center bg-slate-800 border-slate-800 text-white px-3 py-[10px] shadow-lg">
+            <p>Bölümü<br />uzatmak için<br />çizgiden tutup<br />aşağı çekebilirsiniz</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     </div>
   );
 }
@@ -307,9 +512,11 @@ interface ColumnProps {
   showAddZone: boolean;
   onAdd: () => void;
   onRemove: (index: number) => void;
-  onUpdate: (index: number, key: "text" | "image" | "score", value: string | ArrayBuffer | null) => void;
+  onUpdate: (index: number, key: "text" | "content" | "image" | "score" | "height", value: string | ArrayBuffer | null | number) => void;
+  onOCR: (index: number) => void;
   maxImageHeight: number;
   trailingContent?: React.ReactNode;
+  isHighlighting?: boolean;
 }
 
 function Column({
@@ -319,20 +526,26 @@ function Column({
   onAdd,
   onRemove,
   onUpdate,
+  onOCR,
   maxImageHeight,
   trailingContent,
+  isHighlighting = false,
 }: ColumnProps) {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "16px" }}>
       {blocks.map((item, i) => (
-        <React.Fragment key={`${keyPrefix}-${i}`}>
+        <React.Fragment key={item.id}>
           <BlockCard
             item={item}
             onTextChange={(val) => onUpdate(i, "text", val)}
+            onContentChange={(val) => onUpdate(i, "content", val)}
             onImageChange={(val) => onUpdate(i, "image", val)}
             onScoreChange={(val) => onUpdate(i, "score", val)}
+            onHeightChange={(val) => onUpdate(i, "height", val)}
+            onOCR={() => onOCR(i)}
             onRemove={() => onRemove(i)}
             maxImageHeight={maxImageHeight}
+            isHighlighting={isHighlighting}
           />
         </React.Fragment>
       ))}
@@ -355,17 +568,17 @@ function AnswerKeySVG({ options, count }: AnswerKeySVGProps) {
   const leftCount = Math.ceil(count / 2);
   const rightCount = Math.floor(count / 2);
 
-  // ── Layout constants ──────────────────────────────────────────────────────
-  const paddingX = 5;
-  const paddingY = 4;
-  const headerH = 14;
-  const rowH = 12;
-  const circleR = 4; // diameter = 8px
-  const circleGap = 2; // gap between circles
-  const circleStep = circleR * 2 + circleGap; // 10px center-to-center
-  const numW = 13; // width reserved for question number
-  const numCircleGap = 2; // gap between number and first circle
-  const colGap = 6; // gap between the two columns
+  // ── Layout constants (scaled to 60% of original) ──────────────────────────
+  const paddingX = 3;
+  const paddingY = 2;
+  const headerH = 8;
+  const rowH = 7;
+  const circleR = options === 4 ? 2.15 : 2.5;
+  const circleGap = 1; // gap between circles
+  const circleStep = circleR * 2 + circleGap;
+  const numW = 11; // width reserved for question number (enough for 2-digit numbers)
+  const numCircleGap = 1.5; // gap between number and first circle
+  const colGap = 4; // gap between the two columns
 
   // Width of all circles in one row
   const circlesWidth = options * (circleR * 2) + (options - 1) * circleGap;
@@ -373,11 +586,14 @@ function AnswerKeySVG({ options, count }: AnswerKeySVGProps) {
   const colW = numW + numCircleGap + circlesWidth;
 
   // SVG total dimensions
-  const totalW = paddingX * 2 + colW * 2 + colGap;
+  const contentW = colW * 2 + colGap;
+  const totalW = contentW / 0.8; // 10% outer margin on each side
   const totalH = headerH + paddingY + Math.ceil(count / 2) * rowH + paddingY;
 
-  const leftOffsetX = paddingX;
-  const rightOffsetX = paddingX + colW + colGap;
+  // Position each column within its own half, shifted left from center
+  const halfW = totalW / 2;
+  const leftOffsetX = (halfW - colW) * 0.25;
+  const rightOffsetX = halfW + (halfW - colW) * 0.25;
 
   const renderColumn = (startQ: number, qCount: number, offsetX: number) =>
     Array.from({ length: qCount }, (_, i) => {
@@ -391,11 +607,11 @@ function AnswerKeySVG({ options, count }: AnswerKeySVGProps) {
           {/* Question number */}
           <text
             x={offsetX + numW}
-            y={cy + 2}
+            y={cy + 1}
             textAnchor="end"
-            fontSize="7"
+            fontSize={options === 4 ? "3.4" : "4"}
             fontFamily="system-ui, sans-serif"
-            fill="#52525b">
+            fill="#000">
             {qNum}.
           </text>
 
@@ -404,14 +620,14 @@ function AnswerKeySVG({ options, count }: AnswerKeySVGProps) {
             const cx = firstCX + li * circleStep;
             return (
               <g key={label}>
-                <circle cx={cx} cy={cy} r={circleR} stroke="#a1a1aa" strokeWidth="1" fill="white" />
+                <circle cx={cx} cy={cy} r={circleR} stroke="#a1a1aa" strokeWidth="0.6" fill="white" />
                 <text
                   x={cx}
-                  y={cy + 2}
+                  y={cy + 1}
                   textAnchor="middle"
-                  fontSize="5"
+                  fontSize={options === 4 ? "2.6" : "3"}
                   fontFamily="system-ui, sans-serif"
-                  fill="#71717a">
+                  fill="#000">
                   {label}
                 </text>
               </g>
@@ -422,7 +638,7 @@ function AnswerKeySVG({ options, count }: AnswerKeySVGProps) {
     });
 
   return (
-    <div className="w-full">
+    <div style={{ width: "100%" }}>
       <svg
         xmlns="http://www.w3.org/2000/svg"
         width="100%"
@@ -440,11 +656,11 @@ function AnswerKeySVG({ options, count }: AnswerKeySVGProps) {
           fill="none"
           stroke="#e4e4e7"
           strokeWidth="1"
-          rx="4"
+          rx="0"
         />
 
         {/* Header background */}
-        <rect x="0" y="0" width={totalW} height={headerH} fill="#f4f4f5" rx="4" />
+        <rect x="0" y="0" width={totalW} height={headerH} fill="#f4f4f5" rx="0" />
         {/* Square off bottom corners of header fill */}
         <rect x="0" y={headerH - 4} width={totalW} height={4} fill="#f4f4f5" />
         <line x1="0" y1={headerH} x2={totalW} y2={headerH} stroke="#e4e4e7" strokeWidth="1" />
@@ -452,21 +668,21 @@ function AnswerKeySVG({ options, count }: AnswerKeySVGProps) {
         {/* Header label */}
         <text
           x={totalW / 2}
-          y={headerH / 2 + 2}
+          y={headerH / 2 + 1}
           textAnchor="middle"
-          fontSize="7"
+          fontSize="2.8"
           fontWeight="700"
           fontFamily="system-ui, sans-serif"
-          fill="#27272a"
-          letterSpacing="1.5">
+          fill="#000"
+          letterSpacing="0.5">
           CEVAP ANAHTARI
         </text>
 
         {/* Center divider */}
         <line
-          x1={paddingX + colW + colGap / 2}
+          x1={totalW / 2}
           y1={headerH + paddingY}
-          x2={paddingX + colW + colGap / 2}
+          x2={totalW / 2}
           y2={totalH - paddingY}
           stroke="#e4e4e7"
           strokeWidth="1"
@@ -487,12 +703,12 @@ function AnswerKeySVG({ options, count }: AnswerKeySVGProps) {
 
 function AddAnswerKeyZone({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="add-answer-key-zone print:hidden mt-2" style={{ height: "44px" }}>
+    <div className="add-answer-key-zone print:hidden" style={{ height: "44px" }}>
       <button
         onClick={onAdd}
-        className="w-full h-full border-2 border-dashed border-zinc-300 hover:border-zinc-400 rounded flex items-center justify-center gap-1 bg-transparent hover:bg-zinc-50 cursor-pointer transition-colors duration-150">
-        <KeyRound className="size-3 text-zinc-400" />
-        <span className="text-xs text-zinc-400">Cevap anahtarı ekle</span>
+        className="w-full h-full border-2 border-dashed border-zinc-400 hover:border-slate-800 rounded-none flex items-center justify-center gap-1 bg-transparent cursor-pointer transition-colors duration-150 group">
+        <KeyRound className="size-3 text-zinc-500 group-hover:text-slate-800" />
+        <span className="text-xs text-zinc-500 group-hover:text-slate-800">Cevap anahtarı ekle</span>
       </button>
     </div>
   );
@@ -508,11 +724,12 @@ interface AnswerKeyModalProps {
 
 function AnswerKeyModal({ open, onClose, onConfirm }: AnswerKeyModalProps) {
   const [selectedOptions, setSelectedOptions] = useState<4 | 5>(4);
-  const [count, setCount] = useState(15);
+  const [countInput, setCountInput] = useState("15");
+  const count = Math.min(15, Math.max(5, parseInt(countInput, 10) || 5));
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm rounded-none">
         <DialogHeader>
           <DialogTitle className="text-base font-semibold text-zinc-800">Cevap Anahtarı Oluştur</DialogTitle>
         </DialogHeader>
@@ -525,20 +742,20 @@ function AnswerKeyModal({ open, onClose, onConfirm }: AnswerKeyModalProps) {
               <button
                 onClick={() => setSelectedOptions(4)}
                 className={[
-                  "flex-1 py-2 px-3 rounded border text-sm font-medium transition-colors cursor-pointer",
+                  "flex-1 py-2 px-3 rounded-none border text-sm font-medium transition-colors cursor-pointer",
                   selectedOptions === 4
-                    ? "bg-zinc-800 text-white border-zinc-800"
-                    : "bg-white text-zinc-600 border-zinc-300 hover:border-zinc-400",
+                    ? "bg-slate-700 text-white border-slate-700"
+                    : "bg-white text-zinc-600 border-zinc-300 hover:border-slate-700",
                 ].join(" ")}>
                 A B C D
               </button>
               <button
                 onClick={() => setSelectedOptions(5)}
                 className={[
-                  "flex-1 py-2 px-3 rounded border text-sm font-medium transition-colors cursor-pointer",
+                  "flex-1 py-2 px-3 rounded-none border text-sm font-medium transition-colors cursor-pointer",
                   selectedOptions === 5
-                    ? "bg-zinc-800 text-white border-zinc-800"
-                    : "bg-white text-zinc-600 border-zinc-300 hover:border-zinc-400",
+                    ? "bg-slate-700 text-white border-slate-700"
+                    : "bg-white text-zinc-600 border-zinc-300 hover:border-slate-700",
                 ].join(" ")}>
                 A B C D E
               </button>
@@ -555,12 +772,14 @@ function AnswerKeyModal({ open, onClose, onConfirm }: AnswerKeyModalProps) {
               type="number"
               min={5}
               max={15}
-              value={count}
+              value={countInput}
               onChange={(e) => {
                 const val = parseInt(e.target.value, 10);
-                if (!isNaN(val)) setCount(Math.min(15, Math.max(5, val)));
+                if (!isNaN(val) && val > 15) setCountInput("15");
+                else setCountInput(e.target.value);
               }}
-              className="w-full"
+              onBlur={() => setCountInput(String(count))}
+              className="w-full rounded-none"
             />
             <p className="text-xs text-zinc-400">En az 5, en fazla 15 soru</p>
           </div>
@@ -570,12 +789,12 @@ function AnswerKeyModal({ open, onClose, onConfirm }: AnswerKeyModalProps) {
           <Button
             variant="outline"
             onClick={onClose}
-            className="cursor-pointer border-slate-900 text-slate-900 hover:bg-slate-900 hover:text-white">
+            className="cursor-pointer border-slate-600 text-slate-700 hover:bg-slate-700 hover:text-white rounded-none">
             İptal
           </Button>
           <Button
             onClick={() => onConfirm(selectedOptions, count)}
-            className="bg-slate-900 hover:bg-slate-800 text-white cursor-pointer">
+            className="bg-slate-700 hover:bg-slate-600 text-white cursor-pointer rounded-none">
             Oluştur
           </Button>
         </DialogFooter>
@@ -588,10 +807,44 @@ function AnswerKeyModal({ open, onClose, onConfirm }: AnswerKeyModalProps) {
 
 export default function A4Template() {
   const [data, setData] = useState<TemplateData>(defaultData);
+  const [isHighlighting, setIsHighlighting] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const [a4MaxImageHeight, setA4MaxImageHeight] = useState<number>(560);
   const [answerKeyModalOpen, setAnswerKeyModalOpen] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [showWarningModal, setShowWarningModal] = useState(false);
+  const warningTriggeredSession = useRef(false);
+
+  const triggerWarningCountdown = () => {
+    if (!warningTriggeredSession.current) {
+      warningTriggeredSession.current = true;
+      setTimeout(() => {
+        setShowWarningModal(true);
+      }, 15000);
+    }
+  };
+
+  useEffect(() => {
+    const hideTime = localStorage.getItem("hide-welcome-message");
+    if (!hideTime) {
+      // Eğer hafızada kapatma kaydı yoksa göster
+      setShowWelcome(true);
+    } else {
+      const timestamp = parseInt(hideTime, 10);
+      const now = Date.now();
+      
+      // Eğer hafızada kayıt varsa ama üzerinden 1 saatten fazla geçmişse göster ve kaydı temizle
+      if (!isNaN(timestamp) && now - timestamp > ONE_HOUR) {
+        setShowWelcome(true);
+        localStorage.removeItem("hide-welcome-message");
+      } else {
+        // Aksi halde gizli kalsın (başlangıç state'i false olduğu için fazladan true set etmiyoruz)
+        setShowWelcome(false);
+      }
+    }
+  }, []);
+
   const page1Ref = useRef<HTMLDivElement>(null);
   const page2Ref = useRef<HTMLDivElement>(null);
 
@@ -642,13 +895,12 @@ export default function A4Template() {
   }, [data, isMounted]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-
   const updateColumnBlock = (
     page: "page1" | "page2",
     col: "left" | "right",
     index: number,
-    key: "text" | "image" | "score",
-    value: string | ArrayBuffer | null,
+    key: "text" | "content" | "image" | "score" | "height",
+    value: string | ArrayBuffer | null | number,
   ) => {
     setData((prev) => {
       const updated = { ...prev };
@@ -657,6 +909,20 @@ export default function A4Template() {
       updated[page][col][index] = { ...updated[page][col][index], [key]: value };
       return updated;
     });
+  };
+
+  const handleOCR = async (page: "page1" | "page2", col: "left" | "right", index: number) => {
+    const item = data[page][col][index];
+    if (!item.image) return;
+
+    try {
+      const text = await performOCR(item.image);
+      if (text && text.trim()) {
+        updateColumnBlock(page, col, index, "content", text.trim());
+      }
+    } catch (e) {
+      console.error("OCR Hatası:", e);
+    }
   };
 
   const removeBlock = (page: "page1" | "page2", col: "left" | "right", index: number) => {
@@ -668,19 +934,20 @@ export default function A4Template() {
     });
   };
 
+  const COL_MAX = 4;
+
   const addBlock = (page: "page1" | "page2", col: "left" | "right") => {
-    const pageData = data[page];
-    const total = pageData.left.length + pageData.right.length;
-    const max = page === "page1" ? PAGE1_MAX_TOTAL : PAGE2_MAX_TOTAL;
-    if (total >= max) return;
+    if (data[page][col].length >= COL_MAX) return;
 
     const nextNum =
       data.page1.left.length + data.page1.right.length + data.page2.left.length + data.page2.right.length + 1;
 
     const newBlock: BlockItem = {
+      id: uid(),
       text: `Soru ${nextNum}`,
+      content: "",
       image: "",
-      score: "Puanı: .......",
+      score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0",
     };
 
     setData((prev) => {
@@ -702,14 +969,15 @@ export default function A4Template() {
 
   // ── Limit checks ──────────────────────────────────────────────────────────
 
-  const page1Total = data.page1.left.length + data.page1.right.length;
-  const page2Total = data.page2.left.length + data.page2.right.length;
-  const canAddPage1 = page1Total < PAGE1_MAX_TOTAL;
-  const canAddPage2 = page2Total < PAGE2_MAX_TOTAL;
+  const canAddPage1Left = data.page1.left.length < COL_MAX;
+  const canAddPage1Right = data.page1.right.length < COL_MAX;
+  const canAddPage2Left = data.page2.left.length < COL_MAX;
+  const canAddPage2Right = data.page2.right.length < COL_MAX;
 
   // ── PDF / Print ───────────────────────────────────────────────────────────
 
   const savePdf = async () => {
+    triggerWarningCountdown();
     if (!page1Ref.current || !page2Ref.current) return;
     setIsPdfGenerating(true);
     try {
@@ -722,7 +990,9 @@ export default function A4Template() {
       pdf.addImage(img1, "PNG", 0, 0, 210, 297);
       pdf.addPage();
       pdf.addImage(img2, "PNG", 0, 0, 210, 297);
-      pdf.save("sablonA4.pdf");
+      
+      const fileName = data.headerTitle ? `${data.headerTitle.trim()}.pdf` : "sablonA4.pdf";
+      pdf.save(fileName);
     } catch (e) {
       console.error("PDF oluşturma hatası:", e);
     } finally {
@@ -732,13 +1002,14 @@ export default function A4Template() {
   };
 
   const handlePrint = () => {
+    triggerWarningCountdown();
     document.body.setAttribute("data-print", "true");
     window.print();
     document.body.removeAttribute("data-print");
   };
 
   return (
-    <div className="screen-wrapper min-h-screen bg-slate-900 font-sans flex flex-col items-center py-10 px-4">
+    <div className={`screen-wrapper min-h-screen ${SCREEN_CANVAS_BG} font-sans flex flex-col items-center py-10 px-4`}>
       {/* Pages container */}
       <div className="a4-print-area flex flex-col gap-6">
         {/* ── Page 1 ── */}
@@ -767,21 +1038,23 @@ export default function A4Template() {
               <EditableText
                 value={data.headerTitle}
                 onChange={(val) => setData((prev) => ({ ...prev, headerTitle: val }))}
-                className="text-xl font-bold text-zinc-800 leading-tight w-full"
+                className="text-xl font-bold text-black leading-tight w-full"
+                isHighlighting={isHighlighting}
               />
               <EditableText
                 value={data.headerSchool}
                 onChange={(val) => setData((prev) => ({ ...prev, headerSchool: val }))}
-                className="text-xl font-semibold text-zinc-700 leading-tight w-full"
+                className="text-xl font-semibold text-black leading-tight w-full"
+                isHighlighting={isHighlighting}
               />
               <div className="flex flex-row w-full mt-1">
-                <span className="w-[50%] text-base font-semibold text-zinc-700 border-r border-zinc-300 pr-2">
+                <span className="w-[50%] text-base font-semibold text-black border-r border-zinc-300 pr-2">
                   Ad Soyad:
                 </span>
-                <span className="w-[30%] text-base font-semibold text-zinc-700 border-r border-zinc-300 px-2">
+                <span className="w-[30%] text-base font-semibold text-black border-r border-zinc-300 px-2">
                   Öğrenci No:
                 </span>
-                <span className="w-[20%] text-base font-semibold text-zinc-700 pl-2">Sınıfı:</span>
+                <span className="w-[20%] text-base font-semibold text-black pl-2">Sınıfı:</span>
               </div>
             </div>
           </div>
@@ -798,20 +1071,24 @@ export default function A4Template() {
             <Column
               blocks={data.page1.left}
               keyPrefix="p1-left"
-              showAddZone={canAddPage1}
+              showAddZone={canAddPage1Left}
               onAdd={() => addBlock("page1", "left")}
               onRemove={(i) => removeBlock("page1", "left", i)}
               onUpdate={(i, key, val) => updateColumnBlock("page1", "left", i, key, val)}
+              onOCR={(i) => handleOCR("page1", "left", i)}
               maxImageHeight={a4MaxImageHeight}
+              isHighlighting={isHighlighting}
             />
             <Column
               blocks={data.page1.right}
               keyPrefix="p1-right"
-              showAddZone={canAddPage1}
+              showAddZone={canAddPage1Right}
               onAdd={() => addBlock("page1", "right")}
               onRemove={(i) => removeBlock("page1", "right", i)}
               onUpdate={(i, key, val) => updateColumnBlock("page1", "right", i, key, val)}
+              onOCR={(i) => handleOCR("page1", "right", i)}
               maxImageHeight={a4MaxImageHeight}
+              isHighlighting={isHighlighting}
             />
           </div>
         </div>
@@ -839,33 +1116,37 @@ export default function A4Template() {
             <Column
               blocks={data.page2.left}
               keyPrefix="p2-left"
-              showAddZone={canAddPage2}
+              showAddZone={canAddPage2Left}
               onAdd={() => addBlock("page2", "left")}
               onRemove={(i) => removeBlock("page2", "left", i)}
               onUpdate={(i, key, val) => updateColumnBlock("page2", "left", i, key, val)}
+              onOCR={(i) => handleOCR("page2", "left", i)}
               maxImageHeight={a4MaxImageHeight}
+              isHighlighting={isHighlighting}
             />
             <Column
               blocks={data.page2.right}
               keyPrefix="p2-right"
-              showAddZone={canAddPage2}
+              showAddZone={canAddPage2Right}
               onAdd={() => addBlock("page2", "right")}
               onRemove={(i) => removeBlock("page2", "right", i)}
               onUpdate={(i, key, val) => updateColumnBlock("page2", "right", i, key, val)}
+              onOCR={(i) => handleOCR("page2", "right", i)}
               maxImageHeight={a4MaxImageHeight}
+              isHighlighting={isHighlighting}
               trailingContent={
                 !data.answerKey.enabled ? (
                   <AddAnswerKeyZone onAdd={() => setAnswerKeyModalOpen(true)} />
                 ) : (
-                  <div className="relative group/answerkey mt-2 w-full" style={{ boxSizing: "border-box" }}>
+                  <div className="relative group/answerkey w-full" style={{ boxSizing: "border-box" }}>
                     {/* Remove button */}
                     <button
                       onClick={handleRemoveAnswerKey}
-                      className="print:hidden absolute z-20 opacity-0 group-hover/answerkey:opacity-100 transition-opacity duration-200 flex items-center gap-0.5 bg-red-50 border border-red-200 text-red-400 hover:text-red-600 hover:bg-red-100 hover:border-red-400 rounded px-1.5 py-0.5 text-xs cursor-pointer"
-                      style={{ right: "4px", top: "-24px" }}
+                      className="print:hidden absolute z-20 opacity-0 group-hover/answerkey:opacity-100 transition-opacity duration-200 flex items-center gap-0.5 bg-red-600 border border-red-700 text-white hover:bg-red-700 rounded-none px-2 py-1 text-xs cursor-pointer"
+                      style={{ right: "4px", top: "-28px" }}
                       title="Cevap anahtarını kaldır">
                       <X className="size-3" />
-                      <span>Kaldır</span>
+                      <span>Cevap anahtarını kaldır</span>
                     </button>
                     <div className="bg-white w-full" style={{ boxSizing: "border-box" }}>
                       <AnswerKeySVG options={data.answerKey.options} count={data.answerKey.count} />
@@ -878,6 +1159,37 @@ export default function A4Template() {
         </div>
       </div>
 
+      {/* ── Welcome Banner ── */}
+      {showWelcome && (
+        <div className="fixed top-6 right-6 z-50 flex flex-col gap-2 bg-white border border-zinc-200 shadow-xl p-4 print:hidden w-[220px]">
+          <div className="flex justify-between items-start mb-1">
+            <h3 className="font-semibold text-sm text-zinc-800">Bilgilendirme</h3>
+            <button 
+              onClick={() => {
+                const now = Date.now().toString();
+                localStorage.setItem("hide-welcome-message", now);
+                setShowWelcome(false);
+              }} 
+              className="text-zinc-400 hover:text-zinc-600 cursor-pointer p-1"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          <p className="text-xs text-zinc-600 leading-relaxed text-left">
+            Merhaba !<br />
+            Yazılı sınav hazırlama aracımızda bazı başlıklar ve bölümler isteğinize göre düzenlenebilir özelliktedir{" "}
+            <span 
+              className="text-red-600 font-bold cursor-pointer underline decoration-dotted"
+              onMouseEnter={() => setIsHighlighting(true)}
+              onMouseLeave={() => setIsHighlighting(false)}
+            >
+              (O bölümleri gör)
+            </span>
+            . Çizgileri kalınlaştırabilir, soru alanını daraltabilirsiniz. <strong>Yükleyeceğiniz resimlerdeki soruları otomatik olarak yazıya dönüştürebilirsiniz.</strong>
+          </p>
+        </div>
+      )}
+
       {/* ── Answer Key Modal ── */}
       <AnswerKeyModal
         open={answerKeyModalOpen}
@@ -887,62 +1199,62 @@ export default function A4Template() {
 
       {/* ── Floating Action Menu ── */}
       <TooltipProvider>
-        <div className="floating-action-menu fixed bottom-6 right-6 z-50 flex flex-col gap-2 bg-white/90 backdrop-blur-sm border border-zinc-200 rounded-xl shadow-lg p-3 print:hidden min-w-[220px]">
+        <div className="floating-action-menu fixed bottom-6 right-6 z-50 flex flex-col gap-2 bg-white/90 backdrop-blur-sm border border-zinc-200 rounded-none shadow-lg p-3 print:hidden min-w-[220px]">
           <Button onClick={handlePrint} variant="outline" className="gap-2 w-full cursor-pointer justify-start">
-            <Printer className="size-4 shrink-0 text-zinc-400" />
+            <Printer className="size-4 shrink-0" />
             Yazıcıya gönder
           </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={savePdf}
-                disabled={isPdfGenerating}
-                variant="outline"
-                className="gap-2 w-full cursor-pointer justify-start">
-                <FileDown className="size-4 shrink-0 text-zinc-400" />
-                {isPdfGenerating ? "Hazırlanıyor..." : "PDF olarak kaydet"}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-xs bg-slate-900 text-white border-slate-900">
-              <p>
-                Pdf olarak indirdiğinizde yazı karakterlerinde çok hafif bir bozulma olacaktır. Yazıcıya gönder diyerek
-                çıktı almanız daha uygundur.
-              </p>
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            onClick={savePdf}
+            disabled={isPdfGenerating}
+            variant="outline"
+            className="gap-2 w-full cursor-pointer justify-start">
+            <FileDown className="size-4 shrink-0" />
+            {isPdfGenerating ? "Hazırlanıyor..." : "PDF olarak kaydet"}
+          </Button>
           <Button asChild variant="outline" className="gap-2 w-full cursor-pointer justify-start">
             <a
-              href={`mailto:?subject=${encodeURIComponent("A4 Şablon")}&body=${encodeURIComponent("Merhaba, bu şablonu seninle paylaşmak istedim.")}`}>
+              href={`mailto:?subject=${encodeURIComponent("🗎 Yazılı Sınav Kağıdı Hazırlama Aracı")}&body=${encodeURIComponent("Merhaba, bu şablonu seninle paylaşmak istedim.")}`}>
               <Mail className="size-4 shrink-0" />
               Arkadaşına gönder
             </a>
           </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  if (window.confirm("Tüm değişiklikler silinecek. Emin misiniz?")) {
-                    window.localStorage.removeItem(STORAGE_KEY);
-                    setData(defaultData);
-                  }
-                }}
-                className="gap-2 w-full border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-400 cursor-pointer justify-start">
-                <RotateCcw className="size-4 shrink-0" />
-                Değişiklikleri sıfırla
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="left"
-              className="max-w-xs bg-red-600 text-white border-red-600 [&>span]:bg-red-600 [&>span]:border-red-600">
-              <p>
-                Tıkladığınızda yaptığınız tüm değişiklikler silinecektir. Sıfırlamadan tarayıcınızdan çıkış yaptığınızda
-                sorularınız 3 gün boyunca kayıtlı kalacaktır. Umumi bir bilgisayarsa mutlaka sıfırlayınız
-              </p>
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (window.confirm("Tüm değişiklikler silinecek. Emin misiniz?")) {
+                window.localStorage.removeItem(STORAGE_KEY);
+                setData(defaultData);
+              }
+            }}
+            className="gap-2 w-full border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-400 cursor-pointer justify-start">
+            <RotateCcw className="size-4 shrink-0" />
+            Değişiklikleri sıfırla
+          </Button>
         </div>
       </TooltipProvider>
+
+      {/* ── Auto Warning Modal ── */}
+      <Dialog open={showWarningModal} onOpenChange={setShowWarningModal}>
+        <DialogContent className="max-w-2xl rounded-none border-t-8 border-t-red-600 border-zinc-200 shadow-2xl">
+          <DialogHeader className="mb-2">
+            <DialogTitle className="flex items-center justify-center gap-3 text-red-600 text-2xl font-bold">
+              <AlertTriangle className="size-8" />
+              ÖNEMLİ GÜVENLİK UYARISI
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-6 text-base text-zinc-800 font-medium leading-relaxed text-center">
+            Sayfada yaptığınız değişiklikler ve yüklediğiniz resimler 3 gün boyunca tarayıcınızın hafızasında kayıtlı kalacaktır. <br/>
+            Yanlışlıkla sayfanın yenilenmesi veya tarayıcınızı kapatmanız durumunda yaptıklarınızın kaybolmaması için böyle bir özellik eklenmiştir.<br/><br/>
+            Herkese açık bir bilgisayarsa bilgisayardan ayrılmadan mutlaka <strong className="text-red-600 font-extrabold px-1">"Değişiklikleri sıfırla"</strong> butonuna tıklayınız!
+          </div>
+          <DialogFooter className="mt-6 flex sm:justify-center w-full">
+            <Button onClick={() => setShowWarningModal(false)} className="rounded-none bg-red-600 hover:bg-red-700 text-white cursor-pointer px-10 py-6 text-lg font-bold w-full max-w-sm mx-auto">
+              ANLADIM, KAPAT
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
