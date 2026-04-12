@@ -8,11 +8,11 @@ interface ImageCropperModalProps {
   open: boolean;
   imageSrc: string;
   onClose: () => void;
-  onCropComplete: (croppedBase64: string) => void;
+  onCropComplete: (croppedBase64: string, croppedHeight?: number) => void;
 }
 
 // Kaliteyi arttırmak için resmi önce orjinal boyutlarında tutuyoruz
-function getCroppedImg(image: HTMLImageElement, crop: PixelCrop): string {
+function getCroppedImg(image: HTMLImageElement, crop: PixelCrop): { base64: string; height: number } {
   const canvas = document.createElement("canvas");
   const scaleX = image.naturalWidth / image.width;
   const scaleY = image.naturalHeight / image.height;
@@ -24,8 +24,11 @@ function getCroppedImg(image: HTMLImageElement, crop: PixelCrop): string {
 
   const pixelRatio = window.devicePixelRatio || 1;
 
-  canvas.width = Math.floor(crop.width * scaleX * pixelRatio);
-  canvas.height = Math.floor(crop.height * scaleY * pixelRatio);
+  const croppedWidth = Math.floor(crop.width * scaleX * pixelRatio);
+  const croppedHeight = Math.floor(crop.height * scaleY * pixelRatio);
+
+  canvas.width = croppedWidth;
+  canvas.height = croppedHeight;
 
   ctx.scale(pixelRatio, pixelRatio);
   ctx.imageSmoothingQuality = "high";
@@ -45,7 +48,10 @@ function getCroppedImg(image: HTMLImageElement, crop: PixelCrop): string {
     crop.height * scaleY
   );
 
-  return canvas.toDataURL("image/jpeg", 0.95);
+  const base64 = canvas.toDataURL("image/jpeg", 0.95);
+  // Gerçek yükseklik: pixelRatio'ya bölünmüş hali
+  const actualHeight = Math.round(croppedHeight / pixelRatio);
+  return { base64, height: actualHeight };
 }
 
 export function ImageCropperModal({ open, imageSrc, onClose, onCropComplete }: ImageCropperModalProps) {
@@ -54,18 +60,28 @@ export function ImageCropperModal({ open, imageSrc, onClose, onCropComplete }: I
   const imgRef = useRef<HTMLImageElement>(null);
 
   const handleConfirm = () => {
-    if (completedCrop && imgRef.current) {
+    if (imgRef.current) {
       try {
-        const base64 = getCroppedImg(imgRef.current, completedCrop);
-        onCropComplete(base64);
+        let base64 = imageSrc;
+        let height = 160;
+
+        if (completedCrop) {
+          // Kırpma yapıldı
+          const result = getCroppedImg(imgRef.current, completedCrop);
+          base64 = result.base64;
+          height = result.height;
+        } else {
+          // Kırpma yapılmadı - orijinal resmin yüksekliğini hesapla
+          height = imgRef.current.naturalHeight;
+        }
+
+        onCropComplete(base64, height);
         onClose();
       } catch (e) {
         console.error("Resim kesme hatası", e);
+        onCropComplete(imageSrc, 160);
+        onClose();
       }
-    } else {
-      // Eğer kullanıcı hiç seçmediyse, direkt orjinalini at
-      onCropComplete(imageSrc);
-      onClose();
     }
   };
 
