@@ -25,7 +25,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-pages-artifact@v3
         with:
-          path: bdist/ # React projelerinde genellikle 'build' olur, Vite kullanıyorsanız 'dist' yapın
+          path: dist/ # React projelerinde genellikle 'build' olur, Vite kullanıyorsanız 'dist' yapın
 
   deploy:
     needs: build_site
