@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Printer, RotateCcw, Mail, FileDown, Plus, X, KeyRound, Upload, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
+import { Printer, RotateCcw, Mail, FileDown, Plus, X, KeyRound, Upload, AlertTriangle, Sparkles, Loader2, Edit2, Type, Undo2, Search, MoveHorizontal, MoveVertical } from "lucide-react";
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -45,6 +45,7 @@ interface AnswerKeyData {
 interface TemplateData {
   headerTitle: string;
   headerSchool: string;
+  headerLogo: string;
   page1: PageData;
   page2: PageData;
   answerKey: AnswerKeyData;
@@ -65,6 +66,7 @@ function uid() {
 const defaultData: TemplateData = {
   headerTitle: "X. Sınıf Matematik Dersi 2.Dönem 1. Yazılı Sınavı",
   headerSchool: "Mehmet Akif Ortaokulu (202X-202X)",
+  headerLogo: "",
   page1: {
     left: [
       { id: "s1", text: "Soru 1", content: "", image: "", score: "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0" },
@@ -102,6 +104,10 @@ function migrateOldFormat(raw: unknown): TemplateData | null {
     if (!result.answerKey) {
       result.answerKey = defaultAnswerKey;
     }
+    // Ensure headerLogo exists
+    if (!result.headerLogo) {
+      result.headerLogo = "";
+    }
     // Ensure all blocks have ids (may not exist in older saves)
     for (const page of ["page1", "page2"] as const) {
       for (const col of ["left", "right"] as const) {
@@ -120,6 +126,7 @@ function migrateOldFormat(raw: unknown): TemplateData | null {
     return {
       headerTitle: typeof r.headerTitle === "string" ? r.headerTitle : defaultData.headerTitle,
       headerSchool: typeof r.headerSchool === "string" ? r.headerSchool : defaultData.headerSchool,
+      headerLogo: "",
       page1: {
         left: (r.page1 as BlockItem[]).map(b => ({ ...b, content: b.content || "" })).slice(0, 2),
         right: (r.page1 as BlockItem[]).map(b => ({ ...b, content: b.content || "" })).slice(2, 4),
@@ -140,7 +147,7 @@ const PAGE2_MAX_TOTAL = 8;
 const ONE_HOUR = 60 * 60 * 1000; // 1 saatlik bekleme süresi
 
 // ─── EditableText ─────────────────────────────────────────────────────────────
- 
+
 interface EditableTextProps {
   value: string;
   onChange: (val: string) => void;
@@ -153,7 +160,7 @@ function EditableText({ value, onChange, className = "", isHighlighting = false 
   const divRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="relative group w-full block border border-transparent hover:border-blue-400 transition-colors duration-150 rounded-none print:border-0">
+    <div className="relative group w-full block border border-transparent hover:border-red-600 transition-colors duration-150 rounded-none print:border-0">
       <div
         ref={divRef}
         contentEditable
@@ -182,11 +189,124 @@ function EditableText({ value, onChange, className = "", isHighlighting = false 
         {value}
       </div>
       <div className="print:hidden absolute z-50 top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex flex-col items-center">
-        <div className="w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-slate-800 shadow-sm" />
-        <div className="bg-slate-800 text-white text-xs px-3 py-[10px] text-center whitespace-nowrap shadow-lg">
+        <div className="w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-red-600 shadow-sm" />
+        <div className="bg-red-600 text-white text-xs px-3 py-[10px] text-center whitespace-nowrap shadow-lg rounded-none">
           Bu bölüme tıklayarak<br />düzenleyebilirsiniz
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── LogoUploader (MEB Logo) ───────────────────────────────────────────────────
+
+interface LogoUploaderProps {
+  src: string;
+  onChange: (val: string) => void;
+  isHighlighting?: boolean;
+}
+
+function LogoUploader({ src, onChange, isHighlighting = false }: LogoUploaderProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [showErrorTooltip, setShowErrorTooltip] = useState(false);
+
+  const defaultLogo = "https://upload.wikimedia.org/wikipedia/commons/c/cc/Milli_E%C4%9Fitim_Bakanl%C4%B1%C4%9F%C4%B1_Logo.svg";
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileName = file.name.toLowerCase();
+    if (!fileName.endsWith('.png') && !fileName.endsWith('.jpg') && !fileName.endsWith('.jpeg')) {
+      setShowErrorTooltip(true);
+      setTimeout(() => setShowErrorTooltip(false), 3000);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      if (img.width === 80 && img.height === 80) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          onChange(ev.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setShowErrorTooltip(true);
+        setTimeout(() => setShowErrorTooltip(false), 3000);
+      }
+    };
+    img.onerror = () => {
+      setShowErrorTooltip(true);
+      setTimeout(() => setShowErrorTooltip(false), 3000);
+    };
+    img.src = URL.createObjectURL(file);
+    
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const handleClick = () => {
+    inputRef.current?.click();
+  };
+
+  const handleReset = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange("");
+  };
+
+  return (
+    <div 
+      className={`w-20 h-20 flex-shrink-0 flex items-center justify-center relative group/logo cursor-pointer ${isHighlighting ? "highlight-active" : ""}`}
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+      onClick={handleClick}
+    >
+      <img 
+        src={src || defaultLogo} 
+        alt="MEB Logo" 
+        className="w-full h-full object-contain group-hover/logo:border-2 group-hover/logo:border-dashed group-hover/logo:border-[#cad5e2]" 
+      />
+      
+      {/* Reset Butonu - Sadece özel logo yüklendiğinde göster - hover'da görünür */}
+      {src && (
+        <button
+          onClick={handleReset}
+          className="print:hidden absolute top-0 left-0 z-30 opacity-0 group-hover/logo:opacity-100 flex items-center justify-center gap-1 bg-red-600 hover:bg-red-700 text-white h-5 text-xs cursor-pointer w-full transition-opacity"
+        >
+          <Undo2 className="size-3 text-white font-bold" style={{ filter: "drop-shadow(0 0 1px rgba(255,255,255,0.8))" }} />
+          <span className="whitespace-nowrap">MEB Logo</span>
+        </button>
+      )}
+      
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {/* Tooltip - Logo yükleme bilgisi */}
+      {showTooltip && !showErrorTooltip && (
+        <div className="print:hidden absolute z-50 top-full left-1/2 -translate-x-1/2 mt-2 pointer-events-none flex flex-col items-center">
+          <div className="w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-red-600 shadow-sm" />
+          <div className="bg-red-600 text-white text-xs px-3 py-[10px] text-center whitespace-nowrap shadow-lg rounded-none">
+            Tıklayarak 80x80 px<br />logo yükleyebilirsiniz
+          </div>
+        </div>
+      )}
+
+      {/* Error Tooltip - Boyut hatası veya uzantı hatası */}
+      {showErrorTooltip && (
+        <div className="print:hidden absolute z-50 top-full left-1/2 -translate-x-1/2 mt-2 pointer-events-none flex flex-col items-center">
+          <div className="w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-red-600 shadow-sm" />
+          <div className="bg-red-600 text-white text-xs px-3 py-[10px] text-center whitespace-nowrap shadow-lg rounded-none">
+            Lütfen 80x80 px<br />PNG veya JPG yükleyiniz
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -205,20 +325,27 @@ function ImageUploader({ src, onChange, height, isHighlighting = false }: ImageU
   const [modalOpen, setModalOpen] = useState(false);
   const [tempSrc, setTempSrc] = useState<string>("");
 
+  const [imgNaturalHeight, setImgNaturalHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (src) {
+      const img = new Image();
+      img.onload = () => {
+        setImgNaturalHeight(img.height);
+      };
+      img.src = src;
+    } else {
+      setImgNaturalHeight(null);
+    }
+  }, [src]);
+
   return (
     <>
       <div
-        className={`relative overflow-hidden bg-white print:bg-white border border-dashed border-zinc-300 group-hover/block:border-zinc-500 flex items-center justify-center transition-colors duration-200 ${isHighlighting ? "highlight-active" : ""}`}
-        style={{ height }}>
-        {src && <img src={src} className="absolute inset-0 w-full h-full object-contain" alt="Yüklenen görsel" />}
-
-        <Button
-          size="sm"
-          className="upload-btn print:hidden relative z-20 bg-red-600 hover:bg-red-700 text-white border-transparent cursor-pointer opacity-0 translate-y-2 group-hover/block:opacity-100 group-hover/block:translate-y-0 transition-all duration-200 group/uploadbtn gap-1.5 rounded-none shadow-sm"
-          onClick={() => inputRef.current?.click()}>
-          <Upload className="upload-icon size-3.5" />
-          Tekrar soru yükle
-        </Button>
+        className={`relative overflow-hidden bg-white print:bg-white border border-dashed border-zinc-300 group/imgarea:hover:border-zinc-500 flex items-start justify-center transition-colors duration-200 ${isHighlighting ? "highlight-active" : ""}`}
+        style={{ height: src ? Math.max(height, imgNaturalHeight || 0) : height }}
+      >
+        {src && <img src={src} className="w-full h-auto max-h-full object-contain" alt="Yüklenen görsel" />}
 
         <input
           ref={inputRef}
@@ -255,15 +382,16 @@ function ImageUploader({ src, onChange, height, isHighlighting = false }: ImageU
 interface CompactImageUploaderProps {
   onImageChange: (val: string | ArrayBuffer | null) => void;
   isHighlighting?: boolean;
+  className?: string;
 }
 
-function CompactImageUploader({ onImageChange, isHighlighting = false }: CompactImageUploaderProps) {
+function CompactImageUploader({ onImageChange, isHighlighting = false, className = "" }: CompactImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [tempSrc, setTempSrc] = useState<string>("");
 
   return (
-    <div className="w-full">
+    <div className={`w-full ${className}`}>
       <div 
         onClick={() => inputRef.current?.click()}
         className={`group relative flex flex-col items-center justify-center w-full min-h-[200px] bg-slate-50/50 border-2 border-dashed border-slate-300 hover:border-slate-400 hover:bg-slate-100/50 cursor-pointer transition-all duration-200 ${isHighlighting ? "highlight-active" : ""}`}
@@ -352,7 +480,44 @@ function BlockCard({
   const [blockHeight, setBlockHeight] = useState<number>(item.height ?? DEFAULT_IMAGE_HEIGHT);
   const [removing, setRemoving] = useState(false);
   const [isOCRProcessing, setIsOCRProcessing] = useState(false);
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [tempImageSrc, setTempImageSrc] = useState("");
+  const [showMenu, setShowMenu] = useState(false);
+  const [showEditButton, setShowEditButton] = useState(true);
+  const [showResizeTooltip, setShowResizeTooltip] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (showMenu) {
+      timer = setTimeout(() => {
+        setShowMenu(false);
+      }, 10000);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [showMenu]);
+
+  const handleEditClick = () => {
+    setShowEditButton(false);
+    setShowMenu(true);
+    setShowResizeTooltip(true);
+    setTimeout(() => {
+      setShowMenu(false);
+    }, 10000);
+    setTimeout(() => {
+      setShowResizeTooltip(false);
+    }, 3000);
+  };
+
+  useEffect(() => {
+    if (!showMenu && !showEditButton) {
+      setTimeout(() => {
+        setShowEditButton(true);
+      }, 100);
+    }
+  }, [showMenu, showEditButton]);
 
   // Sync internal height state with prop updates (important for reloads/resets)
   useEffect(() => {
@@ -397,109 +562,167 @@ function BlockCard({
   };
 
   return (
-    <div ref={cardRef} className={`relative group/block bg-white border border-zinc-200 hover:border-blue-400 p-3 flex flex-col gap-2 print:border-zinc-200 ${removing ? "overflow-hidden block-removing" : "overflow-visible transition-colors duration-200"}`}>
-      {/* Remove button - Bottom Left */}
+    <div ref={cardRef} className={`relative group/block bg-white border border-zinc-200 hover:border-red-600 p-3 flex flex-col gap-2 print:border-zinc-200 ${removing ? "overflow-hidden block-removing" : "overflow-visible transition-colors duration-200"} ${!item.content && !item.image ? "print:hidden preview-hidden" : ""} ${!item.content && !item.image && !item.text ? "preview-hidden-empty" : ""}`}>
+      {/* Bloku Kaldır - Sol alt köşe, hover'da görünür */}
       <button
         onClick={handleRemove}
-        className="print:hidden absolute z-20 opacity-0 group-hover/block:opacity-100 transition-opacity duration-200 flex items-center bg-red-600 border-r border-t border-red-700 text-white hover:bg-red-700 h-8 px-2 cursor-pointer"
+        className="print:hidden absolute z-20 opacity-0 group-hover/block:opacity-100 transition-opacity duration-200 flex items-center bg-red-600 border-r border-t border-red-700 text-white hover:bg-red-700 h-6 px-2 cursor-pointer"
         style={{ left: 0, bottom: 0 }}
       >
         <X className="size-4" />
-        <span className="ml-1.5 text-xs font-semibold">Bloku Kaldır</span>
+        <span className="ml-1.5 text-xs font-semibold">Bloku kaldır</span>
       </button>
 
       <div className="flex items-center gap-2">
-        <EditableText value={item.text} onChange={onTextChange} className="font-bold text-sm text-black" isHighlighting={isHighlighting} />
+        <EditableText value={item.text} onChange={onTextChange} className="font-bold text-sm text-black"         isHighlighting={isHighlighting} />
         <div className="ml-auto shrink-0">
           <EditableText
             value={item.score ?? "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0"}
             onChange={onScoreChange}
-            className="text-xs text-black font-semibold text-right whitespace-nowrap"
+            className="text-xs text-gray-500 font-semibold text-right whitespace-nowrap"
             isHighlighting={isHighlighting}
           />
         </div>
       </div>
       {/* İçerik Alanı: Resim Varsay (Dinamik Yükseklik) */}
       {item.image ? (
-        <div className="relative overflow-hidden group/imgarea">
-          <ImageUploader src={item.image} onChange={onImageChange} height={blockHeight} isHighlighting={isHighlighting} />
-
-          {/* Black Translucent Overlay on Hover */}
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/block:opacity-100 transition-opacity duration-200 z-10 pointer-events-none" />
-
-          {/* OCR Button - Top Left */}
-          {!isOCRProcessing && (
-            <Button
-              size="sm"
-              className="absolute top-0 left-0 z-20 opacity-0 group-hover/block:opacity-100 bg-red-600 hover:bg-red-700 text-white border-r border-b border-red-700 shadow-none gap-1.5 h-10 rounded-none px-4 cursor-pointer transition-opacity duration-200"
-              onClick={async () => {
-                setIsOCRProcessing(true);
-                try {
-                  await onOCR();
-                } finally {
-                  setIsOCRProcessing(false);
-                }
-              }}
-            >
-              <Sparkles className="size-4 text-white animate-sparkle-magic" />
-              <span className="font-semibold text-xs">Metne Dönüştür</span>
-            </Button>
-          )}
-
-          {/* Action Overlay - Bottom Right */}
-          <div className="absolute bottom-0 right-0 z-20 opacity-0 group-hover/block:opacity-100 transition-opacity">
-            <Button
-              size="sm"
-              variant="destructive"
-              className="bg-red-600 hover:bg-red-700 text-white h-8 rounded-none border-l border-t border-red-700 shadow-none gap-1.5 px-3 cursor-pointer"
-              onClick={() => {
-                if(window.confirm("Görsel kaldırılacak. Emin misiniz?")) onImageChange("");
-              }}
-              title="Resmi kaldır"
-            >
-              <X className="size-4" />
-              <span className="font-semibold text-xs">Resmi Kaldır</span>
-            </Button>
-          </div>
-          {isOCRProcessing && (
-            <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex flex-col items-center justify-center gap-2 z-10">
-              <Loader2 className="size-6 animate-spin text-slate-600" />
-              <span className="text-xs font-medium text-slate-700">Metin okunuyor...</span>
+        <div className="relative flex-1">
+          {/* Menü - sadece showMenu true olunca görünür */}
+          {showMenu && (
+            <div className="print:hidden absolute left-0 top-1/2 -translate-x-full -translate-y-1/2 -ml-10 z-30 flex flex-col gap-1 bg-white/90 backdrop-blur-sm border border-zinc-200 rounded-none shadow-lg p-2 min-w-[180px]">
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700 text-white h-7 rounded-none shadow-none gap-1.5 px-3 cursor-pointer justify-start group/ocr"
+                onClick={async () => {
+                  setIsOCRProcessing(true);
+                  try {
+                    await onOCR();
+                  } finally {
+                    setIsOCRProcessing(false);
+                  }
+                }}
+              >
+                <Sparkles className="size-3.5 text-white" style={{ animation: "sparkle-magic 1s infinite ease-in-out" }} />
+                <span className="font-semibold text-xs">Resmi metne dönüştür</span>
+              </Button>
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700 text-white h-7 rounded-none shadow-none gap-1.5 px-3 cursor-pointer justify-start group/upload"
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'image/*';
+                  input.onchange = (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setTempImageSrc(reader.result as string);
+                      setCropModalOpen(true);
+                    };
+                    reader.readAsDataURL(file);
+                  };
+                  input.click();
+                }}
+              >
+                <Upload className="size-3.5 group-hover/upload:animate-bounce" />
+                <span className="font-semibold text-xs">Tekrar soru yükle</span>
+              </Button>
+              {/* Metin bölümü ekle - sadece content boş veya undefined ise göster */}
+              {(!item.content || !item.content.trim()) && (
+                <Button
+                  size="sm"
+                  className="bg-red-600 hover:bg-red-700 text-white h-7 rounded-none shadow-none gap-1.5 px-3 cursor-pointer justify-start"
+                  onClick={() => onContentChange("Soru metnini buraya yazın...")}
+                >
+                  <Type className="size-3.5" />
+                  <span className="font-semibold text-xs">Metin bölümü ekle</span>
+                </Button>
+              )}
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700 text-white h-7 rounded-none border border-red-700 shadow-none gap-1.5 px-3 cursor-pointer justify-start"
+                onClick={() => {
+                  if(window.confirm("Görsel kaldırılacak. Emin misiniz?")) onImageChange("");
+                }}
+              >
+                <X className="size-3.5" />
+                <span className="font-semibold text-xs">Resmi kaldır</span>
+              </Button>
+              {/* Ok - Menüden resme uzanan */}
+              <div className="absolute right-0 top-1/2 translate-x-full -translate-y-1/2 h-0.5 bg-zinc-400" style={{ width: "42px" }} />
             </div>
           )}
+          <div className="relative overflow-hidden group/imgarea group/block">
+            {/* Resmi düzenle butonu - hover'da sol üst köşede - img'nin üzerinde */}
+            {showEditButton && (
+              <button
+                onClick={handleEditClick}
+                className="print:hidden absolute top-1 left-1 z-30 opacity-0 group-hover/block:opacity-100 transition-opacity duration-200 flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white h-7 px-2 cursor-pointer"
+              >
+                <Edit2 className="size-3.5" />
+                <span className="font-semibold text-xs">Resmi düzenle</span>
+              </button>
+            )}
+            <ImageUploader key={blockHeight} src={item.image} onChange={onImageChange} height={blockHeight} isHighlighting={isHighlighting} />
+            {isOCRProcessing && (
+              <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex flex-col items-center justify-center gap-2 z-10">
+                <Loader2 className="size-6 animate-spin text-slate-600" />
+                <span className="text-xs font-medium text-slate-700">Metin okunuyor...</span>
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <div className="flex justify-start no-print">
-          <CompactImageUploader onImageChange={onImageChange} isHighlighting={isHighlighting} />
+          <CompactImageUploader onImageChange={onImageChange} isHighlighting={isHighlighting} className="print:hidden" />
         </div>
       )}
 
-      {/* Soru İçeriği (Yazı Altta) */}
-      <div className="mt-1">
-        <EditableText 
-          value={item.content || ""} 
-          onChange={onContentChange} 
-          className="text-sm leading-relaxed" 
-          isHighlighting={isHighlighting}
-        />
-      </div>
+      {/* Soru İçeriği (Yazı Altta) - Yazıcı/PDF'de sadece metin varsa göster */}
+      {item.content && item.content.trim() && (
+        <div className="mt-1">
+          <EditableText 
+            value={item.content || ""} 
+            onChange={onContentChange} 
+            className="text-sm leading-relaxed" 
+            isHighlighting={isHighlighting}
+          />
+        </div>
+      )}
       
       {/* Resize Handle - Always visible for prep layout */}
       <TooltipProvider>
-        <Tooltip>
+        <Tooltip open={showResizeTooltip}>
           <TooltipTrigger asChild>
             <div
-              className="no-print h-2 w-full cursor-s-resize bg-zinc-100 hover:bg-zinc-300 transition-colors rounded-b print:hidden flex items-center justify-center group/resize"
+              className={`no-print h-2 w-full cursor-s-resize bg-zinc-100 hover:bg-zinc-300 transition-colors rounded-b print:hidden flex items-center justify-center group/resize ${isHighlighting ? "highlight-active" : ""}`}
               onMouseDown={handleResizeStart}
+              onMouseEnter={() => setShowResizeTooltip(true)}
+              onMouseLeave={() => setShowResizeTooltip(false)}
             >
               <div className="w-12 h-0.5 bg-zinc-300 group-hover/resize:bg-zinc-400 rounded-full" />
             </div>
           </TooltipTrigger>
-          <TooltipContent side="top" className="text-center bg-slate-800 border-slate-800 text-white px-3 py-[10px] shadow-lg">
-            <p>Bölümü<br />uzatmak için<br />çizgiden tutup<br />aşağı çekebilirsiniz</p>
+          <TooltipContent side="bottom" className="text-center bg-red-600 border-red-600 text-white px-3 py-[10px] shadow-lg rounded-none">
+            <p>Bölümü uzatmak<br />için çizgiden tutup<br />aşağı çekebilirsiniz</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
+
+      {/* Kırpma Modal */}
+      <ImageCropperModal
+        open={cropModalOpen}
+        imageSrc={tempImageSrc}
+        onClose={() => setCropModalOpen(false)}
+        onCropComplete={(res, height) => {
+          onImageChange(res);
+          const finalHeight = Math.max(height || 160, 160);
+          setBlockHeight(finalHeight);
+          onHeightChange(finalHeight);
+          setCropModalOpen(false);
+        }}
+      />
     </div>
   );
 }
@@ -814,6 +1037,15 @@ export default function A4Template() {
   const [answerKeyModalOpen, setAnswerKeyModalOpen] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showWarningModal, setShowWarningModal] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [pagePadding, setPagePadding] = useState<number>(() => {
+    const saved = window.localStorage.getItem("page-padding");
+    return saved ? parseInt(saved, 10) : 5;
+  });
+  const [pagePaddingVertical, setPagePaddingVertical] = useState<number>(() => {
+    const saved = window.localStorage.getItem("page-padding-vertical");
+    return saved ? parseInt(saved, 10) : 5;
+  });
   const warningTriggeredSession = useRef(false);
 
   const triggerWarningCountdown = () => {
@@ -1008,10 +1240,68 @@ export default function A4Template() {
     document.body.removeAttribute("data-print");
   };
 
+  const getPagePaddingLabel = () => {
+    if (pagePadding === 5) return "%100";
+    if (pagePadding === 10) return "%95";
+    return "%90";
+  };
+
+  const handleTogglePadding = () => {
+    setPagePadding((prev) => {
+      if (prev === 5) return 10;
+      if (prev === 10) return 15;
+      return 5;
+    });
+  };
+
+  const getPagePaddingVerticalLabel = () => {
+    if (pagePaddingVertical === 5) return "%100";
+    if (pagePaddingVertical === 10) return "%95";
+    return "%90";
+  };
+
+  const handleTogglePaddingVertical = () => {
+    setPagePaddingVertical((prev) => {
+      if (prev === 5) return 10;
+      if (prev === 10) return 15;
+      return 5;
+    });
+  };
+
+  useEffect(() => {
+    window.localStorage.setItem("page-padding", pagePadding.toString());
+  }, [pagePadding]);
+
+  useEffect(() => {
+    window.localStorage.setItem("page-padding-vertical", pagePaddingVertical.toString());
+  }, [pagePaddingVertical]);
+
   return (
-    <div className={`screen-wrapper min-h-screen ${SCREEN_CANVAS_BG} font-sans flex flex-col items-center py-10 px-4`}>
+    <div className={`screen-wrapper min-h-screen ${SCREEN_CANVAS_BG} font-sans flex flex-col items-center py-10 px-4 ${previewMode ? "preview-mode" : ""}`}>
+      {/* Preview Mode Warning Banner */}
+      {previewMode && (
+        <div className="fixed top-6 left-6 z-[60] flex flex-col gap-2 bg-white border-2 border-red-600 shadow-xl p-4 w-[200px] animate-fade-in">
+          <div className="flex justify-between items-start mb-1">
+            <h3 className="font-bold text-red-600 text-sm">Dikkat !</h3>
+            <button onClick={() => setPreviewMode(false)} className="text-zinc-400 hover:text-zinc-600 cursor-pointer p-0.5">
+              <X className="size-4" />
+            </button>
+          </div>
+          <p className="text-zinc-700 text-sm mb-2">
+            Şu an <strong>"Önizleme"</strong> görünümündesiniz. Düzenlemeye devam etmek için <strong>"Önizlemeyi kapat"</strong> butonuna tıklayınız.
+          </p>
+          <Button onClick={() => setPreviewMode(false)} className="bg-red-600 text-white hover:bg-red-700 hover:scale-105 rounded-none text-xs py-1 transition-transform cursor-pointer">
+            Önizlemeyi kapat
+          </Button>
+        </div>
+      )}
+      
       {/* Pages container */}
-      <div className="a4-print-area flex flex-col gap-6">
+      <div className="a4-print-area flex flex-col gap-6 relative">
+        {/* Preview Mode Overlay - hover ve düzenlemeyi engellemek için */}
+        {previewMode && (
+          <div className="absolute inset-0 z-50 pointer-events-auto cursor-default" title="" />
+        )}
         {/* ── Page 1 ── */}
         <div
           ref={page1Ref}
@@ -1019,20 +1309,18 @@ export default function A4Template() {
           style={{
             width: "210mm",
             minHeight: "297mm",
-            padding: "5mm",
+            padding: `${pagePaddingVertical}mm ${pagePadding}mm`,
             boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
           }}>
           {/* Title */}
           <div className="page-header border-b border-zinc-200 pb-4 mb-6 flex flex-row gap-4 items-start">
-            <div className="w-20 h-20 flex-shrink-0 flex items-center justify-center">
-              <img
-                src="https://upload.wikimedia.org/wikipedia/commons/c/cc/Milli_E%C4%9Fitim_Bakanl%C4%B1%C4%9F%C4%B1_Logo.svg"
-                alt="MEB Logo"
-                className="w-full h-full object-contain"
-              />
-            </div>
+            <LogoUploader
+              src={data.headerLogo}
+              onChange={(val) => setData((prev) => ({ ...prev, headerLogo: val }))}
+              isHighlighting={isHighlighting}
+            />
 
             <div className="flex-1 flex flex-col items-start gap-1">
               <EditableText
@@ -1100,7 +1388,7 @@ export default function A4Template() {
           style={{
             width: "210mm",
             minHeight: "297mm",
-            padding: "5mm",
+            padding: `${pagePaddingVertical}mm ${pagePadding}mm`,
             boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
@@ -1175,17 +1463,17 @@ export default function A4Template() {
               <X className="size-4" />
             </button>
           </div>
-          <p className="text-xs text-zinc-600 leading-relaxed text-left">
+          <p className="text-sm text-zinc-600 leading-relaxed text-left">
             Merhaba !<br />
             Yazılı sınav hazırlama aracımızda bazı başlıklar ve bölümler isteğinize göre düzenlenebilir özelliktedir{" "}
-            <span 
+            (<span 
               className="text-red-600 font-bold cursor-pointer underline decoration-dotted"
               onMouseEnter={() => setIsHighlighting(true)}
               onMouseLeave={() => setIsHighlighting(false)}
             >
-              (O bölümleri gör)
+              O bölümleri gör
             </span>
-            . Çizgileri kalınlaştırabilir, soru alanını daraltabilirsiniz. <strong>Yükleyeceğiniz resimlerdeki soruları otomatik olarak yazıya dönüştürebilirsiniz.</strong>
+            ). Çizgileri kalınlaştırabilir, soru alanını daraltabilirsiniz. <strong>Yükleyeceğiniz resimlerdeki soruları otomatik olarak yazıya dönüştürebilirsiniz.</strong>
           </p>
         </div>
       )}
@@ -1199,26 +1487,60 @@ export default function A4Template() {
 
       {/* ── Floating Action Menu ── */}
       <TooltipProvider>
-        <div className="floating-action-menu fixed bottom-6 right-6 z-50 flex flex-col gap-2 bg-white/90 backdrop-blur-sm border border-zinc-200 rounded-none shadow-lg p-3 print:hidden min-w-[220px]">
-          <Button onClick={handlePrint} variant="outline" className="gap-2 w-full cursor-pointer justify-start">
-            <Printer className="size-4 shrink-0" />
-            Yazıcıya gönder
+        <div className="floating-action-menu fixed bottom-6 right-6 z-50 grid grid-cols-2 gap-2 bg-white/90 backdrop-blur-sm border border-zinc-200 rounded-none shadow-lg p-3 print:hidden min-w-[220px]">
+          {/* 01 - Yatay ölçeklendirme */}
+          <Button onClick={handleTogglePadding} variant="outline" className="gap-2 cursor-pointer justify-start rounded-none" title="Yatay daralt/genişlet">
+            <MoveHorizontal className="size-4 shrink-0" />
+            {getPagePaddingLabel()}
           </Button>
-          <Button
-            onClick={savePdf}
-            disabled={isPdfGenerating}
-            variant="outline"
-            className="gap-2 w-full cursor-pointer justify-start">
+          {/* 02 - Dikey ölçeklendirme */}
+          <Button onClick={handleTogglePaddingVertical} variant="outline" className="gap-2 cursor-pointer justify-start rounded-none" title="Dikey daralt/genişlet">
+            <MoveVertical className="size-4 shrink-0" />
+            {getPagePaddingVerticalLabel()}
+          </Button>
+          
+          {/* 03 - Önizle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  onClick={() => setPreviewMode(!previewMode)} 
+                  variant="outline" 
+                  className={`gap-2 cursor-pointer justify-start rounded-none ${previewMode ? "bg-red-600 border-red-600 text-white hover:bg-red-700" : ""}`}
+                >
+                  {previewMode ? <X className="size-4 shrink-0" /> : <Search className="size-4 shrink-0" />}
+                  Önizle
+                </Button>
+              </TooltipTrigger>
+              {previewMode && (
+                <TooltipContent side="bottom" className="text-center bg-slate-800 border-slate-800 text-white px-3 py-[10px] shadow-lg rounded-none">
+                  <p>Sayfayı düzenlemeye devam etmek<br />için butona tıklayınız</p>
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* 04 - Yazdır */}
+          <Button onClick={handlePrint} variant="outline" className="gap-2 cursor-pointer justify-start rounded-none">
+            <Printer className="size-4 shrink-0" />
+            Yazdır
+          </Button>
+
+          {/* 05 - PDF olarak kaydet */}
+          <Button onClick={savePdf} disabled={isPdfGenerating} variant="outline" className="gap-2 col-span-2 cursor-pointer justify-start rounded-none">
             <FileDown className="size-4 shrink-0" />
             {isPdfGenerating ? "Hazırlanıyor..." : "PDF olarak kaydet"}
           </Button>
-          <Button asChild variant="outline" className="gap-2 w-full cursor-pointer justify-start">
-            <a
-              href={`mailto:?subject=${encodeURIComponent("🗎 Yazılı Sınav Kağıdı Hazırlama Aracı")}&body=${encodeURIComponent("Merhaba, bu şablonu seninle paylaşmak istedim.")}`}>
+
+          {/* 06 - E-posta ile gönder */}
+          <Button asChild variant="outline" className="gap-2 col-span-2 cursor-pointer justify-start rounded-none">
+            <a href={`mailto:?subject=${encodeURIComponent("🗎 Yazılı Sınav Kağıdı Hazırlama Aracı")}&body=${encodeURIComponent("Merhaba, bu şablonu seninle paylaşmak istedim.")}`}>
               <Mail className="size-4 shrink-0" />
-              Arkadaşına gönder
+              E-posta ile gönder
             </a>
           </Button>
+
+          {/* 07 - Değişiklikleri sıfırla */}
           <Button
             variant="outline"
             onClick={() => {
@@ -1227,7 +1549,8 @@ export default function A4Template() {
                 setData(defaultData);
               }
             }}
-            className="gap-2 w-full border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-400 cursor-pointer justify-start">
+            className="gap-2 col-span-2 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-400 cursor-pointer justify-start rounded-none"
+          >
             <RotateCcw className="size-4 shrink-0" />
             Değişiklikleri sıfırla
           </Button>
@@ -1236,10 +1559,10 @@ export default function A4Template() {
 
       {/* ── Auto Warning Modal ── */}
       <Dialog open={showWarningModal} onOpenChange={setShowWarningModal}>
-        <DialogContent className="max-w-2xl rounded-none border-t-8 border-t-red-600 border-zinc-200 shadow-2xl">
+        <DialogContent className="max-w-2xl rounded-none border-t-8 border-t-slate-700 border-zinc-200 shadow-2xl">
           <DialogHeader className="mb-2">
-            <DialogTitle className="flex items-center justify-center gap-3 text-red-600 text-2xl font-bold">
-              <AlertTriangle className="size-8" />
+            <DialogTitle className="flex items-center justify-center gap-3 text-slate-700 text-2xl font-bold">
+              <AlertTriangle className="size-8 text-slate-700" />
               ÖNEMLİ GÜVENLİK UYARISI
             </DialogTitle>
           </DialogHeader>
@@ -1249,8 +1572,8 @@ export default function A4Template() {
             Herkese açık bir bilgisayarsa bilgisayardan ayrılmadan mutlaka <strong className="text-red-600 font-extrabold px-1">"Değişiklikleri sıfırla"</strong> butonuna tıklayınız!
           </div>
           <DialogFooter className="mt-6 flex sm:justify-center w-full">
-            <Button onClick={() => setShowWarningModal(false)} className="rounded-none bg-red-600 hover:bg-red-700 text-white cursor-pointer px-10 py-6 text-lg font-bold w-full max-w-sm mx-auto">
-              ANLADIM, KAPAT
+            <Button onClick={() => setShowWarningModal(false)} className="rounded-none bg-slate-700 hover:bg-slate-600 text-white cursor-pointer px-8 py-4 text-base font-bold w-auto">
+              Anladım
             </Button>
           </DialogFooter>
         </DialogContent>
