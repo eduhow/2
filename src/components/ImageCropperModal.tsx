@@ -108,8 +108,8 @@ export function ImageCropperModal({ open, imageSrc, onClose, onCropComplete }: I
           {imageSrc && (
             <ReactCrop
               crop={crop}
-              onChange={(c) => setCrop(c)}
-              onComplete={(c) => setCompletedCrop(c)}
+              onChange={(c: Crop) => setCrop(c)}
+              onComplete={(c: PixelCrop) => setCompletedCrop(c)}
               className="max-h-full"
             >
               <img
