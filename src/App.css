@@ -249,17 +249,24 @@
 
 /* ─── PDF Generation Styles ────────────────────────────────────────────────── */
 
-/* Block remove animation */
+/* Block remove animation - Güzel fade-out ve slide-up */
 .block-removing {
-  transform: translateX(-60px);
   opacity: 0;
+  transform: translateY(-30px) scale(0.92);
   height: 0 !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
   border-top-width: 0 !important;
   border-bottom-width: 0 !important;
   pointer-events: none;
-  transition: transform 0.35s ease-in, opacity 0.35s ease-in, height 0.35s ease-in, padding 0.35s ease-in, border-width 0.35s ease-in;
+  transition: all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Diğer blokların yukarı kayması için */
+.block-removing + * {
+  transition: transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 /* Upload arrow animation */
@@ -294,9 +301,10 @@ body.pdf-generating .cursor-ns-resize {
 .highlight-active {
   animation: highlight-pulse-glow 1.5s infinite ease-in-out !important;
   background-color: rgba(59, 130, 246, 0.05) !important;
-  border-radius: 4px !important;
+  border-radius: 0 !important;
   transition: all 0.3s ease !important;
   z-index: 40 !important;
+  cursor: s-resize !important;
 }
 
 /* Sihirli Yıldız Animasyonu (OCR Butonu İçin) */
@@ -313,6 +321,21 @@ body.pdf-generating .cursor-ns-resize {
   display: inline-block;
 }
 
+.hover\\:animate-sparkle-magic:hover {
+  animation: sparkle-magic 1s infinite ease-in-out;
+}
+
+.group:hover .group-hover-sparkle {
+  animation: sparkle-magic 1s infinite ease-in-out;
+}
+
+/* Yazıcı/PDF'de gizlenecek elementler */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
 /* Kullanıcı isteği: mt-1 altındaki metin alanlarına özel kesikli kenarlık ve hover efekti (SADECE EKRANDA GÖRÜNÜR) */
 @media screen {
   .mt-1 > div > div {
@@ -322,4 +345,47 @@ body.pdf-generating .cursor-ns-resize {
   .mt-1 > div > div:hover {
     border: 2px dashed #90a1b9  !important;
   }
+}
+
+.pdf-generating .mt-1 > div > div,
+.preview-mode .mt-1 > div > div {
+  border: none !important;
+}
+
+.text-xs {
+  line-height: 15px !important;
+}
+
+.py-\[10px\] {
+  padding-block: 7px !important;
+}
+
+.pdf-generating .print\:hidden {
+  display: none !important;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+.preview-mode .a4-print-area .print\:hidden,
+.preview-mode .a4-page .print\:hidden {
+  display: none !important;
+}
+
+.preview-mode .a4-print-area .preview-hidden,
+.preview-mode .a4-page .preview-hidden,
+.preview-mode .a4-print-area .preview-hidden-empty,
+.preview-mode .a4-page .preview-hidden-empty {
+  display: none !important;
+}
+
+.preview-mode .floating-action-menu,
+.preview-mode .fixed.top-6.right-6 {
+  display: none !important;
 }
