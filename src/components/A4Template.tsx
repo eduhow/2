@@ -343,7 +343,7 @@ function ImageUploader({ src, onChange, height, isHighlighting = false }: ImageU
     <>
       <div
         className={`relative overflow-hidden bg-white print:bg-white border border-dashed border-zinc-300 group/imgarea:hover:border-zinc-500 flex items-start justify-center transition-colors duration-200 ${isHighlighting ? "highlight-active" : ""}`}
-        style={{ height: src ? Math.max(height, imgNaturalHeight || 0) : height }}
+        style={{ minHeight: height }}
       >
         {src && <img src={src} className="w-full h-auto max-h-full object-contain" alt="Yüklenen görsel" />}
 
@@ -715,9 +715,22 @@ function BlockCard({
         open={cropModalOpen}
         imageSrc={tempImageSrc}
         onClose={() => setCropModalOpen(false)}
-        onCropComplete={(res, height) => {
+        onCropComplete={(res, width, height) => {
           onImageChange(res);
-          const finalHeight = Math.max(height || 160, 160);
+          console.log("Kırpılan resim boyutları - Genişlik:", width, "Yükseklik:", height);
+          
+          // Div genişliği 342px, buna göre orantılı yükseklik hesapla
+          const DIV_WIDTH = 342;
+          let finalHeight = height || 160;
+          
+          if (width && width > DIV_WIDTH) {
+            // Aspect ratio hesapla
+            const ratio = width / DIV_WIDTH;
+            finalHeight = Math.round(height / ratio);
+            console.log("Orantılı yükseklik hesaplandı - Oran:", ratio.toFixed(2), "Yeni Yükseklik:", finalHeight);
+          }
+          
+          finalHeight = Math.max(finalHeight, 160);
           setBlockHeight(finalHeight);
           onHeightChange(finalHeight);
           setCropModalOpen(false);
