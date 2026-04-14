@@ -1052,9 +1052,13 @@ export default function A4Template() {
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [pagePadding, setPagePadding] = useState<number>(() => {
-    const saved = window.localStorage.getItem("page-padding");
-    return saved ? parseInt(saved, 10) : 5;
-  });
+  const saved = window.localStorage.getItem("page-padding");
+  const value = saved ? parseInt(saved, 10) : 5;
+  if (typeof window !== 'undefined') {
+    document.documentElement.style.setProperty("--page-padding-h", `${value}mm`);
+  }
+  return value;
+});
   const [pagePaddingVertical, setPagePaddingVertical] = useState<number>(() => {
     const saved = window.localStorage.getItem("page-padding-vertical");
     return saved ? parseInt(saved, 10) : 5;
@@ -1249,6 +1253,8 @@ export default function A4Template() {
   const handlePrint = () => {
     triggerWarningCountdown();
     document.body.setAttribute("data-print", "true");
+    document.documentElement.style.setProperty("--page-padding-h", `${pagePadding}mm`);
+    document.documentElement.style.setProperty("--page-padding-v", `${pagePaddingVertical}mm`);
     window.print();
     document.body.removeAttribute("data-print");
   };
@@ -1283,10 +1289,12 @@ export default function A4Template() {
 
   useEffect(() => {
     window.localStorage.setItem("page-padding", pagePadding.toString());
+    document.documentElement.style.setProperty("--page-padding-h", `${pagePadding}mm`);
   }, [pagePadding]);
 
   useEffect(() => {
     window.localStorage.setItem("page-padding-vertical", pagePaddingVertical.toString());
+    document.documentElement.style.setProperty("--page-padding-v", `${pagePaddingVertical}mm`);
   }, [pagePaddingVertical]);
 
   return (
