@@ -1,18 +1,18 @@
 import React, { useState, useRef } from "react";
 import ReactCrop, { type Crop, type PixelCrop, centerCrop, makeAspectCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "./ui/dialog";
 import { Button } from "./ui/button";
 
 interface ImageCropperModalProps {
   open: boolean;
   imageSrc: string;
   onClose: () => void;
-  onCropComplete: (croppedBase64: string, croppedHeight?: number) => void;
+  onCropComplete: (croppedBase64: string, croppedWidth?: number, croppedHeight?: number) => void;
 }
 
 // Kaliteyi arttırmak için resmi önce orjinal boyutlarında tutuyoruz
-function getCroppedImg(image: HTMLImageElement, crop: PixelCrop): { base64: string; height: number } {
+function getCroppedImg(image: HTMLImageElement, crop: PixelCrop): { base64: string; width: number; height: number } {
   const canvas = document.createElement("canvas");
   const scaleX = image.naturalWidth / image.width;
   const scaleY = image.naturalHeight / image.height;
@@ -49,9 +49,10 @@ function getCroppedImg(image: HTMLImageElement, crop: PixelCrop): { base64: stri
   );
 
   const base64 = canvas.toDataURL("image/jpeg", 0.95);
-  // Gerçek yükseklik: pixelRatio'ya bölünmüş hali
+  // Gerçek boyutlar: pixelRatio'ya bölünmüş hali
+  const actualWidth = Math.round(croppedWidth / pixelRatio);
   const actualHeight = Math.round(croppedHeight / pixelRatio);
-  return { base64, height: actualHeight };
+  return { base64, width: actualWidth, height: actualHeight };
 }
 
 export function ImageCropperModal({ open, imageSrc, onClose, onCropComplete }: ImageCropperModalProps) {
@@ -63,23 +64,26 @@ export function ImageCropperModal({ open, imageSrc, onClose, onCropComplete }: I
     if (imgRef.current) {
       try {
         let base64 = imageSrc;
+        let width = 342;
         let height = 160;
 
         if (completedCrop) {
           // Kırpma yapıldı
           const result = getCroppedImg(imgRef.current, completedCrop);
           base64 = result.base64;
+          width = result.width;
           height = result.height;
         } else {
-          // Kırpma yapılmadı - orijinal resmin yüksekliğini hesapla
+          // Kırpma yapılmadı - orijinal resmin boyutlarını hesapla
+          width = imgRef.current.naturalWidth;
           height = imgRef.current.naturalHeight;
         }
 
-        onCropComplete(base64, height);
+        onCropComplete(base64, width, height);
         onClose();
       } catch (e) {
         console.error("Resim kesme hatası", e);
-        onCropComplete(imageSrc, 160);
+        onCropComplete(imageSrc, 342, 160);
         onClose();
       }
     }
@@ -102,6 +106,9 @@ export function ImageCropperModal({ open, imageSrc, onClose, onCropComplete }: I
       <DialogContent className="max-w-3xl rounded-none">
         <DialogHeader>
           <DialogTitle className="text-base font-semibold text-zinc-800">Resmi Hazırla (Sadece İstenen Alanı Seçin)</DialogTitle>
+          <DialogDescription className="sr-only">
+            Resimi kırpmak için istenen alanı seçin ve Kırp ve Ekle butonuna tıklayın.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col items-center justify-center bg-zinc-50 border border-zinc-200 rounded-none p-4 max-h-[60vh] overflow-auto">
