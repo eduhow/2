@@ -1473,7 +1473,7 @@ export default function A4Template() {
             >
               Bölümleri gör
             </span>
-            ). Üye olmadan, resim yükeleme, resim kırma, <strong>resimlerdeki soruları otomatik olarak yazıya dönüştüme</strong>, pdf alma yapabilirsiniz.
+            ). Üye olmadan <strong>resim yükleme, resim kırma, resimlerdeki soruları otomatik olarak yazıya dönüştüme</strong>, pdf alma yapabilirsiniz.
           </p>
         </div>
       )}
