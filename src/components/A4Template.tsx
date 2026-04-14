@@ -726,8 +726,8 @@ function BlockCard({
           if (width && width > DIV_WIDTH) {
             // Aspect ratio hesapla
             const ratio = width / DIV_WIDTH;
-            finalHeight = Math.round(height / ratio);
-            console.log("Orantılı yükseklik hesaplandı - Oran:", ratio.toFixed(2), "Yeni Yükseklik:", finalHeight);
+            finalHeight = Math.round((height || 0) / ratio);
+console.log("Orantılı yükseklik hesaplandı - Oran:", ratio.toFixed(2), "Yeni Yükseklik:", finalHeight);
           }
           
           finalHeight = Math.max(finalHeight, 160);
