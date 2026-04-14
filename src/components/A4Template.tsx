@@ -1465,7 +1465,7 @@ export default function A4Template() {
         <div className="fixed top-6 right-6 z-50 flex flex-col gap-2 bg-white border border-zinc-200 shadow-xl p-4 print:hidden w-[220px]">
           <div className="flex justify-between items-start mb-1">
             <h3 className="font-semibold text-sm text-zinc-800">Bilgilendirme</h3>
-            <button 
+            <button title="Kapat"
               onClick={() => {
                 const now = Date.now().toString();
                 localStorage.setItem("hide-welcome-message", now);
