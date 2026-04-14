@@ -1486,7 +1486,7 @@ export default function A4Template() {
             >
               Bölümleri gör
             </span>
-            ). Üye olmadan <strong>resim yükleme, resim kırma, resimlerdeki soruları otomatik olarak yazıya dönüştüme</strong>, pdf alma işlemleri yapabilirsiniz.
+            ). Üye olmadan <strong>resim yükleme, resim kırma, resimlerdeki soruları otomatik olarak yazıya dönüştüme</strong>, pdf alma işlemleri yapabilirsiniz. <p style={{ display: 'none' }}>.....</p>
           </p>
         </div>
       )}
