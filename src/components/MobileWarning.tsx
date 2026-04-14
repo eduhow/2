@@ -1,9 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export function MobileWarning() {
   const [showWarning, setShowWarning] = useState(false);
+  const hasChecked = useRef(false);
 
   useEffect(() => {
+    // Daha önce kontrol edilmişse tekrar etme
+    if (hasChecked.current) return;
+
     const lastDismissed = localStorage.getItem("mobile-warning-dismissed");
     if (lastDismissed) {
       const oneDay = 24 * 60 * 60 * 1000;
@@ -13,15 +17,13 @@ export function MobileWarning() {
       }
     }
 
-    const checkScreenSize = () => {
-      if (window.innerWidth < 1024) {
-        setShowWarning(true);
-      }
-    };
+    // İlk kontrolü işaretle
+    hasChecked.current = true;
 
-    checkScreenSize();
-    window.addEventListener("resize", checkScreenSize);
-    return () => window.removeEventListener("resize", checkScreenSize);
+    // Sadece ilk yüklemede kontrol et
+    if (window.innerWidth < 1024) {
+      setShowWarning(true);
+    }
   }, []);
 
   const handleDismiss = () => {
