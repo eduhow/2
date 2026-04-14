@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+:root {
+  --page-padding-h: 5mm;
+  --page-padding-v: 5mm;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -43,8 +48,9 @@
 
   --font-sans: "Inter", sans-serif;
 }
-
 :root {
+  --page-padding-h: 5mm;
+  --page-padding-v: 5mm;
   --radius: 0.325rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -189,7 +195,7 @@
     height: 297mm !important;
     min-height: 297mm !important;
     margin: 0 !important;
-    padding: 5mm !important;
+    padding: var(--page-padding-v, 5mm) var(--page-padding-h, 5mm) !important;
     box-shadow: none !important;
     border: none !important;
     background: white !important;
