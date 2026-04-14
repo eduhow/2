@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20' # Vite 6 için Node 20 daha iyidir
           cache: 'pnpm'
 
       - name: Install
@@ -34,6 +34,6 @@ jobs:
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: dist
-        publish_branch: gh-pages
+          github_token: ${{ secrets.GITHUB_TOKEN }} # DİKKAT: Buralar içeriden başlamalı
+          publish_dir: dist
+          publish_branch: gh-pages
