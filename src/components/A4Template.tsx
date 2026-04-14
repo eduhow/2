@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageCropperModal } from "./ImageCropperModal";
+import { MobileWarning } from "./MobileWarning";
 import { performOCR } from "@/lib/image-utils";
 
 const STORAGE_KEY = "refine-template-v1";
@@ -1299,6 +1300,7 @@ export default function A4Template() {
 
   return (
     <div className={`screen-wrapper min-h-screen ${SCREEN_CANVAS_BG} font-sans flex flex-col items-center py-10 px-4 ${previewMode ? "preview-mode" : ""}`}>
+      <MobileWarning />
       {/* Preview Mode Warning Banner */}
       {previewMode && (
         <div className="fixed top-6 left-6 z-[60] flex flex-col gap-2 bg-white border-2 border-red-600 shadow-xl p-4 w-[200px] animate-fade-in">
