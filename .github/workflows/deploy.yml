@@ -26,11 +26,17 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm build
+  run: pnpm build
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: dist
-          publish_branch: gh-pages
+- name: List build output
+  run: ls -la dist && find dist -maxdepth 2 -type f | sed 's/^/dist: /'
+
+- name: Copy SPA fallback
+  run: cp dist/index.html dist/404.html
+
+- name: Deploy to GitHub Pages
+  uses: peaceiris/actions-gh-pages@v3
+  with:
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+    publish_dir: dist
+    publish_branch: gh-pages
