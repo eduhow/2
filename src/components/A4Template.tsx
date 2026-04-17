@@ -9,7 +9,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageCropperModal } from "./ImageCropperModal";
-import { MobileWarning } from "./MobileWarning";
 import { performOCR } from "@/lib/image-utils";
 
 const STORAGE_KEY = "refine-template-v1";
@@ -30,6 +29,7 @@ interface BlockItem {
   image: string;
   height?: number;
   score?: string;
+  imageRemoved?: boolean;
 }
 
 interface PageData {
@@ -156,6 +156,15 @@ interface EditableTextProps {
   isHighlighting?: boolean;
 }
 
+// Basit HTML sanitize fonksiyonu (XSS koruması)
+const sanitizeHTML = (html: string): string => {
+  if (!html) return "";
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/\son\w+="[^"]*"/gi, "")
+    .replace(/\son\w+='[^']*'/gi, "");
+};
+
 function EditableText({ value, onChange, className = "", isHighlighting = false }: EditableTextProps) {
   const [editing, setEditing] = useState(false);
   const divRef = useRef<HTMLDivElement>(null);
@@ -175,9 +184,19 @@ function EditableText({ value, onChange, className = "", isHighlighting = false 
           setEditing(true);
           e.currentTarget.focus();
         }}
+        onKeyDown={(e) => {
+          if (e.ctrlKey && e.key === "b") {
+            e.preventDefault();
+            document.execCommand("bold", false);
+          }
+          if (e.ctrlKey && e.key === "i") {
+            e.preventDefault();
+            document.execCommand("italic", false);
+          }
+        }}
         onBlur={(e) => {
           setEditing(false);
-          onChange(e.currentTarget.innerText);
+          onChange(sanitizeHTML(e.currentTarget.innerHTML));
         }}
         className={[
           "cursor-text whitespace-pre-wrap text-black outline-none transition-all w-full block",
@@ -186,13 +205,16 @@ function EditableText({ value, onChange, className = "", isHighlighting = false 
           className,
         ]
           .filter(Boolean)
-          .join(" ")}>
-        {value}
-      </div>
+          .join(" ")}
+        dangerouslySetInnerHTML={{ __html: value || "" }}
+      />
+
       <div className="print:hidden absolute z-50 top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex flex-col items-center">
         <div className="w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-red-600 shadow-sm" />
-        <div className="bg-red-600 text-white text-xs px-3 py-[10px] text-center whitespace-nowrap shadow-lg rounded-none">
-          Bu bölüme tıklayarak<br />düzenleyebilirsiniz
+        <div className="bg-red-600 text-white text-xs px-3 py-[10px] text-center shadow-lg rounded-none">
+          Bu bölüme tıklayarak düzenleyebilirsiniz.<br />
+          Metni seç,<br />
+          <strong>CTRL+B</strong> = Kalın &nbsp;&nbsp; <em>CTRL+I</em> = Yan yazı
         </div>
       </div>
     </div>
@@ -319,9 +341,10 @@ interface ImageUploaderProps {
   onChange: (val: string | ArrayBuffer | null) => void;
   height: number;
   isHighlighting?: boolean;
+  onImageLoadComplete?: () => void;
 }
 
-function ImageUploader({ src, onChange, height, isHighlighting = false }: ImageUploaderProps) {
+function ImageUploader({ src, onChange, height, isHighlighting = false, onImageLoadComplete }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [tempSrc, setTempSrc] = useState<string>("");
@@ -344,7 +367,7 @@ function ImageUploader({ src, onChange, height, isHighlighting = false }: ImageU
     <>
       <div
         className={`relative overflow-hidden bg-white print:bg-white border border-dashed border-zinc-300 group/imgarea:hover:border-zinc-500 flex items-start justify-center transition-colors duration-200 ${isHighlighting ? "highlight-active" : ""}`}
-        style={{ minHeight: height }}
+        style={{ height: src ? Math.max(height, imgNaturalHeight || 0) : height }}
       >
         {src && <img src={src} className="w-full h-auto max-h-full object-contain" alt="Yüklenen görsel" />}
 
@@ -373,6 +396,7 @@ function ImageUploader({ src, onChange, height, isHighlighting = false }: ImageU
         onCropComplete={(res) => {
           onChange(res);
           setModalOpen(false);
+          onImageLoadComplete?.();
         }}
       />
     </>
@@ -384,9 +408,10 @@ interface CompactImageUploaderProps {
   onImageChange: (val: string | ArrayBuffer | null) => void;
   isHighlighting?: boolean;
   className?: string;
+  onImageLoadComplete?: () => void;
 }
 
-function CompactImageUploader({ onImageChange, isHighlighting = false, className = "" }: CompactImageUploaderProps) {
+function CompactImageUploader({ onImageChange, isHighlighting = false, className = "", onImageLoadComplete }: CompactImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [tempSrc, setTempSrc] = useState<string>("");
@@ -428,7 +453,10 @@ function CompactImageUploader({ onImageChange, isHighlighting = false, className
         open={modalOpen}
         imageSrc={tempSrc}
         onClose={() => setModalOpen(false)}
-        onCropComplete={onImageChange}
+        onCropComplete={(res) => {
+          onImageChange(res);
+          onImageLoadComplete?.();
+        }}
       />
     </div>
   );
@@ -460,10 +488,12 @@ interface BlockCardProps {
   onImageChange: (val: string | ArrayBuffer | null) => void;
   onScoreChange: (val: string) => void;
   onHeightChange: (val: number) => void;
+  onImageRemovedChange: (val: boolean) => void;
   onOCR: () => void;
   onRemove: () => void;
   maxImageHeight: number;
   isHighlighting?: boolean;
+  columnSide: 'left' | 'right';
 }
 
 function BlockCard({
@@ -473,10 +503,12 @@ function BlockCard({
   onImageChange,
   onScoreChange,
   onHeightChange,
+  onImageRemovedChange,
   onOCR,
   onRemove,
   maxImageHeight,
   isHighlighting = false,
+  columnSide,
 }: BlockCardProps) {
   const [blockHeight, setBlockHeight] = useState<number>(item.height ?? DEFAULT_IMAGE_HEIGHT);
   const [removing, setRemoving] = useState(false);
@@ -488,25 +520,10 @@ function BlockCard({
   const [showResizeTooltip, setShowResizeTooltip] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (showMenu) {
-      timer = setTimeout(() => {
-        setShowMenu(false);
-      }, 10000);
-    }
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
-  }, [showMenu]);
-
   const handleEditClick = () => {
     setShowEditButton(false);
     setShowMenu(true);
     setShowResizeTooltip(true);
-    setTimeout(() => {
-      setShowMenu(false);
-    }, 10000);
     setTimeout(() => {
       setShowResizeTooltip(false);
     }, 3000);
@@ -519,6 +536,17 @@ function BlockCard({
       }, 100);
     }
   }, [showMenu, showEditButton]);
+
+  // Menü dışına tıklandığında menüyü kapat
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (showMenu && cardRef.current && !cardRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showMenu]);
 
   // Sync internal height state with prop updates (important for reloads/resets)
   useEffect(() => {
@@ -590,7 +618,7 @@ function BlockCard({
         <div className="relative flex-1">
           {/* Menü - sadece showMenu true olunca görünür */}
           {showMenu && (
-            <div className="print:hidden absolute left-0 top-1/2 -translate-x-full -translate-y-1/2 -ml-10 z-30 flex flex-col gap-1 bg-white/90 backdrop-blur-sm border border-zinc-200 rounded-none shadow-lg p-2 min-w-[180px]">
+            <div className={`print:hidden absolute ${columnSide === 'left' ? 'left-0 -translate-x-full -ml-10' : 'right-0 translate-x-full -mr-10'} top-1/2 -translate-y-1/2 z-30 flex flex-col gap-1 bg-white/90 backdrop-blur-sm border border-zinc-200 rounded-none shadow-lg p-2 min-w-[180px]`}>
               <Button
                 size="sm"
                 className="bg-red-600 hover:bg-red-700 text-white h-7 rounded-none shadow-none gap-1.5 px-3 cursor-pointer justify-start group/ocr"
@@ -644,14 +672,17 @@ function BlockCard({
                 size="sm"
                 className="bg-red-600 hover:bg-red-700 text-white h-7 rounded-none border border-red-700 shadow-none gap-1.5 px-3 cursor-pointer justify-start"
                 onClick={() => {
-                  if(window.confirm("Görsel kaldırılacak. Emin misiniz?")) onImageChange("");
+                  if(window.confirm("Görsel kaldırılacak. Emin misiniz?")) {
+                    onImageChange("");
+                    onImageRemovedChange(true);
+                  }
                 }}
               >
                 <X className="size-3.5" />
                 <span className="font-semibold text-xs">Resmi kaldır</span>
               </Button>
               {/* Ok - Menüden resme uzanan */}
-              <div className="absolute right-0 top-1/2 translate-x-full -translate-y-1/2 h-0.5 bg-zinc-400" style={{ width: "42px" }} />
+              <div className={`absolute ${columnSide === 'left' ? 'right-0 translate-x-full' : 'left-0 -translate-x-full'} top-1/2 -translate-y-1/2 h-0.5 bg-zinc-400`} style={{ width: "42px" }} />
             </div>
           )}
           <div className="relative overflow-hidden group/imgarea group/block">
@@ -665,7 +696,7 @@ function BlockCard({
                 <span className="font-semibold text-xs">Resmi düzenle</span>
               </button>
             )}
-            <ImageUploader key={blockHeight} src={item.image} onChange={onImageChange} height={blockHeight} isHighlighting={isHighlighting} />
+            <ImageUploader key={blockHeight} src={item.image} onChange={onImageChange} height={blockHeight} isHighlighting={isHighlighting} onImageLoadComplete={() => setShowMenu(true)} />
             {isOCRProcessing && (
               <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex flex-col items-center justify-center gap-2 z-10">
                 <Loader2 className="size-6 animate-spin text-slate-600" />
@@ -674,9 +705,9 @@ function BlockCard({
             )}
           </div>
         </div>
-      ) : (
+      ) : item.imageRemoved ? null : (
         <div className="flex justify-start no-print">
-          <CompactImageUploader onImageChange={onImageChange} isHighlighting={isHighlighting} className="print:hidden" />
+          <CompactImageUploader onImageChange={onImageChange} isHighlighting={isHighlighting} className="print:hidden" onImageLoadComplete={() => setShowMenu(true)} />
         </div>
       )}
 
@@ -716,22 +747,9 @@ function BlockCard({
         open={cropModalOpen}
         imageSrc={tempImageSrc}
         onClose={() => setCropModalOpen(false)}
-        onCropComplete={(res, width, height) => {
+        onCropComplete={(res, height) => {
           onImageChange(res);
-          console.log("Kırpılan resim boyutları - Genişlik:", width, "Yükseklik:", height);
-          
-          // Div genişliği 342px, buna göre orantılı yükseklik hesapla
-          const DIV_WIDTH = 342;
-          let finalHeight = height || 160;
-          
-          if (width && width > DIV_WIDTH) {
-            // Aspect ratio hesapla
-            const ratio = width / DIV_WIDTH;
-            finalHeight = Math.round((height || 0) / ratio);
-console.log("Orantılı yükseklik hesaplandı - Oran:", ratio.toFixed(2), "Yeni Yükseklik:", finalHeight);
-          }
-          
-          finalHeight = Math.max(finalHeight, 160);
+          const finalHeight = Math.max(height || 160, 160);
           setBlockHeight(finalHeight);
           onHeightChange(finalHeight);
           setCropModalOpen(false);
@@ -749,11 +767,13 @@ interface ColumnProps {
   showAddZone: boolean;
   onAdd: () => void;
   onRemove: (index: number) => void;
-  onUpdate: (index: number, key: "text" | "content" | "image" | "score" | "height", value: string | ArrayBuffer | null | number) => void;
+  onUpdate: (index: number, key: "text" | "content" | "image" | "score" | "height" | "imageRemoved", value: string | ArrayBuffer | null | number | boolean) => void;
   onOCR: (index: number) => void;
   maxImageHeight: number;
   trailingContent?: React.ReactNode;
   isHighlighting?: boolean;
+  resetCounter: number;
+  columnSide: 'left' | 'right';
 }
 
 function Column({
@@ -767,22 +787,27 @@ function Column({
   maxImageHeight,
   trailingContent,
   isHighlighting = false,
+  resetCounter,
+  columnSide,
 }: ColumnProps) {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "16px" }}>
       {blocks.map((item, i) => (
         <React.Fragment key={item.id}>
           <BlockCard
+            key={`${item.id}-${resetCounter}`}
             item={item}
             onTextChange={(val) => onUpdate(i, "text", val)}
             onContentChange={(val) => onUpdate(i, "content", val)}
             onImageChange={(val) => onUpdate(i, "image", val)}
             onScoreChange={(val) => onUpdate(i, "score", val)}
             onHeightChange={(val) => onUpdate(i, "height", val)}
+            onImageRemovedChange={(val) => onUpdate(i, "imageRemoved", val)}
             onOCR={() => onOCR(i)}
             onRemove={() => onRemove(i)}
             maxImageHeight={maxImageHeight}
             isHighlighting={isHighlighting}
+            columnSide={columnSide}
           />
         </React.Fragment>
       ))}
@@ -1047,19 +1072,16 @@ export default function A4Template() {
   const [isHighlighting, setIsHighlighting] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [resetCounter, setResetCounter] = useState(0);
   const [a4MaxImageHeight, setA4MaxImageHeight] = useState<number>(560);
   const [answerKeyModalOpen, setAnswerKeyModalOpen] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [pagePadding, setPagePadding] = useState<number>(() => {
-  const saved = window.localStorage.getItem("page-padding");
-  const value = saved ? parseInt(saved, 10) : 5;
-  if (typeof window !== 'undefined') {
-    document.documentElement.style.setProperty("--page-padding-h", `${value}mm`);
-  }
-  return value;
-});
+    const saved = window.localStorage.getItem("page-padding");
+    return saved ? parseInt(saved, 10) : 5;
+  });
   const [pagePaddingVertical, setPagePaddingVertical] = useState<number>(() => {
     const saved = window.localStorage.getItem("page-padding-vertical");
     return saved ? parseInt(saved, 10) : 5;
@@ -1149,8 +1171,8 @@ export default function A4Template() {
     page: "page1" | "page2",
     col: "left" | "right",
     index: number,
-    key: "text" | "content" | "image" | "score" | "height",
-    value: string | ArrayBuffer | null | number,
+    key: "text" | "content" | "image" | "score" | "height" | "imageRemoved",
+    value: string | ArrayBuffer | null | number | boolean,
   ) => {
     setData((prev) => {
       const updated = { ...prev };
@@ -1254,8 +1276,6 @@ export default function A4Template() {
   const handlePrint = () => {
     triggerWarningCountdown();
     document.body.setAttribute("data-print", "true");
-    document.documentElement.style.setProperty("--page-padding-h", `${pagePadding}mm`);
-    document.documentElement.style.setProperty("--page-padding-v", `${pagePaddingVertical}mm`);
     window.print();
     document.body.removeAttribute("data-print");
   };
@@ -1290,17 +1310,14 @@ export default function A4Template() {
 
   useEffect(() => {
     window.localStorage.setItem("page-padding", pagePadding.toString());
-    document.documentElement.style.setProperty("--page-padding-h", `${pagePadding}mm`);
   }, [pagePadding]);
 
   useEffect(() => {
     window.localStorage.setItem("page-padding-vertical", pagePaddingVertical.toString());
-    document.documentElement.style.setProperty("--page-padding-v", `${pagePaddingVertical}mm`);
   }, [pagePaddingVertical]);
 
   return (
     <div className={`screen-wrapper min-h-screen ${SCREEN_CANVAS_BG} font-sans flex flex-col items-center py-10 px-4 ${previewMode ? "preview-mode" : ""}`}>
-      <MobileWarning />
       {/* Preview Mode Warning Banner */}
       {previewMode && (
         <div className="fixed top-6 left-6 z-[60] flex flex-col gap-2 bg-white border-2 border-red-600 shadow-xl p-4 w-[200px] animate-fade-in">
@@ -1389,6 +1406,8 @@ export default function A4Template() {
               onOCR={(i) => handleOCR("page1", "left", i)}
               maxImageHeight={a4MaxImageHeight}
               isHighlighting={isHighlighting}
+              resetCounter={resetCounter}
+              columnSide="left"
             />
             <Column
               blocks={data.page1.right}
@@ -1400,6 +1419,8 @@ export default function A4Template() {
               onOCR={(i) => handleOCR("page1", "right", i)}
               maxImageHeight={a4MaxImageHeight}
               isHighlighting={isHighlighting}
+              resetCounter={resetCounter}
+              columnSide="right"
             />
           </div>
         </div>
@@ -1434,6 +1455,8 @@ export default function A4Template() {
               onOCR={(i) => handleOCR("page2", "left", i)}
               maxImageHeight={a4MaxImageHeight}
               isHighlighting={isHighlighting}
+              resetCounter={resetCounter}
+              columnSide="left"
             />
             <Column
               blocks={data.page2.right}
@@ -1445,6 +1468,8 @@ export default function A4Template() {
               onOCR={(i) => handleOCR("page2", "right", i)}
               maxImageHeight={a4MaxImageHeight}
               isHighlighting={isHighlighting}
+              resetCounter={resetCounter}
+              columnSide="right"
               trailingContent={
                 !data.answerKey.enabled ? (
                   <AddAnswerKeyZone onAdd={() => setAnswerKeyModalOpen(true)} />
@@ -1475,7 +1500,7 @@ export default function A4Template() {
         <div className="fixed top-6 right-6 z-50 flex flex-col gap-2 bg-white border border-zinc-200 shadow-xl p-4 print:hidden w-[220px]">
           <div className="flex justify-between items-start mb-1">
             <h3 className="font-semibold text-sm text-zinc-800">Bilgilendirme</h3>
-            <button title="Kapat"
+            <button 
               onClick={() => {
                 const now = Date.now().toString();
                 localStorage.setItem("hide-welcome-message", now);
@@ -1494,9 +1519,9 @@ export default function A4Template() {
               onMouseEnter={() => setIsHighlighting(true)}
               onMouseLeave={() => setIsHighlighting(false)}
             >
-              Bölümleri gör
+              O bölümleri gör
             </span>
-            ). Üye olmadan <strong>resim yükleme, resim kırma, resimlerdeki soruları otomatik olarak yazıya dönüştüme</strong>, pdf alma işlemleri yapabilirsiniz. <p style={{ display: 'none' }}>.....</p>
+            ). Çizgileri kalınlaştırabilir, soru alanını daraltabilirsiniz. <strong>Yükleyeceğiniz resimlerdeki soruları otomatik olarak yazıya dönüştürebilirsiniz.</strong>
           </p>
         </div>
       )}
@@ -1570,6 +1595,7 @@ export default function A4Template() {
               if (window.confirm("Tüm değişiklikler silinecek. Emin misiniz?")) {
                 window.localStorage.removeItem(STORAGE_KEY);
                 setData(defaultData);
+                setResetCounter(prev => prev + 1);
               }
             }}
             className="gap-2 col-span-2 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-400 cursor-pointer justify-start rounded-none"
