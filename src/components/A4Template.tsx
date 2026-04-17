@@ -154,6 +154,7 @@ interface EditableTextProps {
   onChange: (val: string) => void;
   className?: string;
   isHighlighting?: boolean;
+  tooltipText?: string;
 }
 
 // Basit HTML sanitize fonksiyonu (XSS koruması)
@@ -165,7 +166,7 @@ const sanitizeHTML = (html: string): string => {
     .replace(/\son\w+='[^']*'/gi, "");
 };
 
-function EditableText({ value, onChange, className = "", isHighlighting = false }: EditableTextProps) {
+function EditableText({ value, onChange, className = "", isHighlighting = false, tooltipText }: EditableTextProps) {
   const [editing, setEditing] = useState(false);
   const divRef = useRef<HTMLDivElement>(null);
 
@@ -209,14 +210,14 @@ function EditableText({ value, onChange, className = "", isHighlighting = false 
         dangerouslySetInnerHTML={{ __html: value || "" }}
       />
 
-      <div className="print:hidden absolute z-50 top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex flex-col items-center">
-        <div className="w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-red-600 shadow-sm" />
-        <div className="bg-red-600 text-white text-xs px-3 py-[10px] text-center shadow-lg rounded-none">
-          Bu bölüme tıklayarak düzenleyebilirsiniz.<br />
-          Metni seç,<br />
-          <strong>CTRL+B</strong> = Kalın &nbsp;&nbsp; <em>CTRL+I</em> = Yan yazı
+      {tooltipText && (
+        <div className="print:hidden absolute z-50 top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex flex-col items-center">
+          <div className="w-0 h-0 border-l-4 border-r-4 border-b-4 border-l-transparent border-r-transparent border-b-red-600 shadow-sm" />
+          <div className="bg-red-600 text-white text-xs px-3 py-[10px] text-center shadow-lg rounded-none whitespace-pre-line">
+            {tooltipText}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -603,13 +604,14 @@ function BlockCard({
       </button>
 
       <div className="flex items-center gap-2">
-        <EditableText value={item.text} onChange={onTextChange} className="font-bold text-sm text-black"         isHighlighting={isHighlighting} />
+        <EditableText value={item.text} onChange={onTextChange} className="font-bold text-sm text-black" isHighlighting={isHighlighting} tooltipText={"Bu bölüme tıklayarak\ndüzenleyebilirsiniz."} />
         <div className="ml-auto shrink-0">
           <EditableText
             value={item.score ?? "Puanı :\u00A0\u00A0\u00A0\u00A0\u00A0"}
             onChange={onScoreChange}
             className="text-xs text-gray-500 font-semibold text-right whitespace-nowrap"
             isHighlighting={isHighlighting}
+            tooltipText={"Bu bölüme tıklayarak\ndüzenleyebilirsiniz."}
           />
         </div>
       </div>
@@ -714,11 +716,12 @@ function BlockCard({
       {/* Soru İçeriği (Yazı Altta) - Yazıcı/PDF'de sadece metin varsa göster */}
       {item.content && item.content.trim() && (
         <div className="mt-1">
-          <EditableText 
-            value={item.content || ""} 
-            onChange={onContentChange} 
-            className="text-sm leading-relaxed" 
+          <EditableText
+            value={item.content || ""}
+            onChange={onContentChange}
+            className="text-sm leading-relaxed"
             isHighlighting={isHighlighting}
+            tooltipText={"Bu bölüme tıklayarak\ndüzenleyebilirsiniz.\nMetni seç,\nCTRL+B = Kalın\nCTRL+I = Yan yazı"}
           />
         </div>
       )}
@@ -1252,17 +1255,19 @@ export default function A4Template() {
     triggerWarningCountdown();
     if (!page1Ref.current || !page2Ref.current) return;
     setIsPdfGenerating(true);
+    document.body.classList.add("pdf-generating");
     try {
-      document.body.classList.add("pdf-generating");
-      const options = { pixelRatio: 2, backgroundColor: "#ffffff" };
-      const img1 = await toPng(page1Ref.current, options);
-      const img2 = await toPng(page2Ref.current, options);
-      document.body.classList.remove("pdf-generating");
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const options = { pixelRatio: 1.5, backgroundColor: "#ffffff", cacheBuster: Date.now() };
+      const [img1, img2] = await Promise.all([
+        toPng(page1Ref.current, options),
+        toPng(page2Ref.current, options)
+      ]);
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       pdf.addImage(img1, "PNG", 0, 0, 210, 297);
       pdf.addPage();
       pdf.addImage(img2, "PNG", 0, 0, 210, 297);
-      
+
       const fileName = data.headerTitle ? `${data.headerTitle.trim()}.pdf` : "sablonA4.pdf";
       pdf.save(fileName);
     } catch (e) {
@@ -1368,12 +1373,14 @@ export default function A4Template() {
                 onChange={(val) => setData((prev) => ({ ...prev, headerTitle: val }))}
                 className="text-xl font-bold text-black leading-tight w-full"
                 isHighlighting={isHighlighting}
+                tooltipText={"Bu bölüme tıklayarak\ndüzenleyebilirsiniz."}
               />
               <EditableText
                 value={data.headerSchool}
                 onChange={(val) => setData((prev) => ({ ...prev, headerSchool: val }))}
                 className="text-xl font-semibold text-black leading-tight w-full"
                 isHighlighting={isHighlighting}
+                tooltipText={"Bu bölüme tıklayarak\ndüzenleyebilirsiniz."}
               />
               <div className="flex flex-row w-full mt-1">
                 <span className="w-[50%] text-base font-semibold text-black border-r border-zinc-300 pr-2">
@@ -1575,9 +1582,18 @@ export default function A4Template() {
           </Button>
 
           {/* 05 - PDF olarak kaydet */}
-          <Button onClick={savePdf} disabled={isPdfGenerating} variant="outline" className="gap-2 col-span-2 cursor-pointer justify-start rounded-none">
-            <FileDown className="size-4 shrink-0" />
-            {isPdfGenerating ? "Hazırlanıyor..." : "PDF olarak kaydet"}
+          <Button onClick={savePdf} variant="outline" className={`gap-2 col-span-2 cursor-pointer justify-start rounded-none ${isPdfGenerating ? "opacity-70" : ""}`}>
+            {isPdfGenerating ? (
+              <>
+                <Loader2 className="size-4 shrink-0 animate-spin" />
+                <span>Hazırlanıyor...</span>
+              </>
+            ) : (
+              <>
+                <FileDown className="size-4 shrink-0" />
+                <span>PDF olarak kaydet</span>
+              </>
+            )}
           </Button>
 
           {/* 06 - E-posta ile gönder */}
